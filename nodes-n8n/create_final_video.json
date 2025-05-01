@@ -1,0 +1,99 @@
+{
+    "name": "Create Final Video",
+    "nodes": [
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://tools.paradox8.com/v1/video/create-final-video",
+                "authentication": "predefinedCredentialType",
+                "nodeCredentialName": "API Key Auth",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "x-api-key",
+                            "value": "={{ $credentials.apiKey }}"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={{ { \"scenes\": $json['url_s3_image (from Cenas)'].map((imgUrl, index) => ({ \"image_url\": imgUrl, \"audio_url\": $json['url_s3_audio (from Cenas)'][index] })), \"title\": $json['Tema Name'], \"id\": $json.ID, \"webhook_url\": $json.webhook_url || 'https://n8n.example.com/webhook/video-complete' } }}",
+                "options": {
+                    "allowUnauthorizedCerts": true,
+                    "response": {
+                        "response": {
+                            "fullResponse": true,
+                            "neverError": true
+                        }
+                    }
+                }
+            },
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                120,
+                1360
+            ],
+            "id": "create-final-video-node",
+            "name": "Create Final Video"
+        },
+        {
+            "parameters": {
+                "values": {
+                    "string": [
+                        {
+                            "name": "scenes",
+                            "value": "=[{\n  \"image_url\": \"https://app.paradox8.com/tmp/C-83-S1.jpg\",\n  \"audio_url\": \"https://app.paradox8.com/tmp/recDosXVGjF1CiUVV.wav\"\n},\n{\n  \"image_url\": \"https://app.paradox8.com/tmp/C-83-S2.jpg\",\n  \"audio_url\": \"https://app.paradox8.com/tmp/recPGI3Y3unW66ID7.wav\"\n},\n{\n  \"image_url\": \"https://app.paradox8.com/tmp/C-83-S3.jpg\",\n  \"audio_url\": \"https://app.paradox8.com/tmp/rec3jnBUSZYFHF7rD.wav\"\n},\n{\n  \"image_url\": \"https://app.paradox8.com/tmp/C-83-S4.jpg\",\n  \"audio_url\": \"https://app.paradox8.com/tmp/recBpcEQmAmsKGntI.wav\"\n},\n{\n  \"image_url\": \"https://app.paradox8.com/tmp/C-83-S5.jpg\",\n  \"audio_url\": \"https://app.paradox8.com/tmp/recRMGvQDg3gaiVTW.wav\"\n},\n{\n  \"image_url\": \"https://app.paradox8.com/tmp/C-83-S6.jpg\",\n  \"audio_url\": \"https://app.paradox8.com/tmp/recv4GhLA1KDAGcRH.wav\"\n},\n{\n  \"image_url\": \"https://app.paradox8.com/tmp/C-83-S7.jpg\",\n  \"audio_url\": \"https://app.paradox8.com/tmp/rectDSxyxSBuBi2GC.wav\"\n},\n{\n  \"image_url\": \"https://app.paradox8.com/tmp/C-83-S8.jpg\",\n  \"audio_url\": \"https://app.paradox8.com/tmp/recuv9gNsDdk6fhkF.wav\"\n}]"
+                        },
+                        {
+                            "name": "title",
+                            "value": "The Sacred Roar Within: Activating Your Prophetic Fire in the Era of Chaos"
+                        },
+                        {
+                            "name": "webhook_url",
+                            "value": "https://n8n.example.com/webhook/video-complete"
+                        },
+                        {
+                            "name": "id",
+                            "value": "content-C-83"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "name": "Set Final Video Data",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 1,
+            "position": [
+                480,
+                300
+            ]
+        }
+    ],
+    "connections": {
+        "Set Final Video Data": {
+            "main": [
+                [
+                    {
+                        "node": "Create Final Video",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "active": false,
+    "settings": {},
+    "pinData": {},
+    "id": "create_final_video_example",
+    "meta": {
+        "instanceId": "example"
+    },
+    "tags": []
+}

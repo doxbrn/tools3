@@ -1,0 +1,44 @@
+{
+    "nodes": [
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://tools.paradox8.com/v1/image/convert/video",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "x-api-key",
+                            "value": "123456"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "{\n    \"image_url\":\"https://nyc.cloud.appwrite.io/v1/storage/buckets/680fa7ba0013449921a5/files/680fc33b001def1167e1/view?project=680fa78600151b6a18b4&mode=admin\",\n    \"length\": 10,\n    \"frame_rate\": 25,\n    \"zoom_speed\": 6,\n    \"id\": \"local-extract\"\n}",
+                "options": {
+                    "allowUnauthorizedCerts": true,
+                    "response": {
+                        "response": {
+                            "fullResponse": true,
+                            "neverError": true
+                        }
+                    }
+                }
+            },
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                120,
+                1360
+            ],
+            "id": "36a2d5e2-05dd-458c-8c04-cf740c5e7185",
+            "name": "Convert Img to Video"
+        }
+    ],
+    "connections": {},
+    "pinData": {},
+    "meta": {
+        "instanceId": "0702d98d5e5ce0169efd194d601636a5f8df4c48cea7ff70230e5bc3bbbb97f4"
+    }
+}
