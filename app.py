@@ -22,12 +22,23 @@ import threading
 import uuid
 import os
 import time
+import logging  # Import logging
 from version import BUILD_NUMBER  # Import the BUILD_NUMBER
 
 MAX_QUEUE_LENGTH = int(os.environ.get('MAX_QUEUE_LENGTH', 0))
 
 
 def create_app():
+    # --- Basic Logging Configuration --- 
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        force=True  # Force configuration even if already configured elsewhere
+    )
+    logger = logging.getLogger(__name__)  # Get logger for app.py itself
+    logger.info("Starting application setup...")
+    # -----------------------------------
+
     app = Flask(__name__)
 
     # Create a queue to hold tasks

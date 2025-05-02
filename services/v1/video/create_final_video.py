@@ -136,7 +136,9 @@ def create_final_video(content_id: str,
                 logger.info(f"Cleaning up local work directory: {work_dir}")
                 shutil.rmtree(work_dir)
             except Exception as e:
-                logger.error(f"Failed to clean up work directory {work_dir}: {e}")
+                logger.error(
+                    f"Failed to clean up work directory {work_dir}: {e}"
+                )
         # --- --- --- --- --- --- ---
 
     # This function now doesn't return anything directly
