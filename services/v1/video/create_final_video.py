@@ -10,9 +10,11 @@ from config import LOCAL_STORAGE_PATH
 
 logger = logging.getLogger(__name__)
 
+
 class VideoCreationError(Exception):
     """Erro genérico na criação do vídeo final."""
     pass
+
 
 def create_final_video(content_id: str,
                        title: str,

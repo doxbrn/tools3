@@ -9,7 +9,10 @@ from services.v1.video.create_final_video import (
 from services.authentication import authenticate
 from app_utils import validate_payload
 
-bp = Blueprint('video', __name__, url_prefix='/v1/video')
+# Rename bp to follow convention expected by app.py
+v1_video_create_final_video_bp = Blueprint(
+    'video', __name__, url_prefix='/v1/video'
+)
 logger = logging.getLogger(__name__)
 
 # JSON schema for incoming payload
@@ -45,7 +48,7 @@ _payload_schema = {
     "required": ["content_id", "scenes"]
 }
 
-@bp.route('/create-final-video', methods=['POST'])
+@v1_video_create_final_video_bp.route('/create-final-video', methods=['POST'])
 @authenticate
 @validate_payload(_payload_schema)
 def create_final_video_endpoint():
@@ -71,6 +74,8 @@ def create_final_video_endpoint():
         }), 200
 
     except VideoCreationError as e:
+        # Log specific video creation error
+        logger.error(f"Video creation failed for {content_id}: {e}")
         return jsonify({
             "status": "failed",
             "error": str(e)
