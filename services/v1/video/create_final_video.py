@@ -184,7 +184,7 @@ def _create_scene_segment(scene: dict, work_dir: str) -> str:
         else:  # Zoom Out
             expr = f"if(eq(on,1),{max_zoom}, max(zoom-{delta:.6f},1))"
 
-        cmd = [
+        cmd_render = [
             'ffmpeg', '-y',
             '-loop', '1', '-i', img_path,
             '-filter_complex',
@@ -197,7 +197,7 @@ def _create_scene_segment(scene: dict, work_dir: str) -> str:
         ]
     else:
         # imagem fixa
-        cmd = [
+        cmd_render = [
             'ffmpeg', '-y',
             '-loop', '1', '-i', img_path,
             '-c:v', 'libx264',
@@ -207,7 +207,17 @@ def _create_scene_segment(scene: dict, work_dir: str) -> str:
             raw_vid
         ]
 
-    _run_ffmpeg(cmd, f"Failed to render video for scene {order}")
+    _run_ffmpeg(cmd_render, f"Failed to render video for scene {order}")
+
+    # --- Check if raw video file was created --- 
+    if not os.path.exists(raw_vid):
+        logger.error(f"Raw video file was not created: {raw_vid}")
+        raise VideoCreationError(
+            f"ffmpeg command completed for scene {order} "
+            f"but failed to create {raw_vid}"
+        )
+    logger.info(f"Raw video created successfully: {raw_vid}")
+    # -------------------------------------------
 
     # -- insere áudio
     mux_cmd = [
@@ -282,10 +292,25 @@ def _run_ffmpeg(cmd: list[str], err_msg: str):
     Executa um comando ffmpeg e verifica saída.
     """
     logger.debug("Running ffmpeg: %s", " ".join(cmd))
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE, text=True)
+    # Use shell=False for security and better argument handling
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    
     if proc.returncode != 0:
         stderr_lines = proc.stderr.splitlines()
         last_line = stderr_lines[-1] if stderr_lines else "(no stderr output)"
-        logger.error("ffmpeg error: %s", proc.stderr)
+        # Log full stderr on error for better debugging
+        logger.error(
+            f"ffmpeg command failed with code {proc.returncode}. CMD: "
+            f"{' '.join(cmd)}"
+        )
+        logger.error(f"ffmpeg stderr:\n{proc.stderr}")
+        if proc.stdout:  # Log stdout too, might contain clues
+            logger.error(f"ffmpeg stdout:\n{proc.stdout}")
         raise VideoCreationError(f"{err_msg}: {last_line}")
+    else:
+        # Log stdout/stderr even on success if debug level is enabled
+        logger.debug(f"ffmpeg completed successfully. CMD: {' '.join(cmd)}")
+        if proc.stdout:
+            logger.debug(f"ffmpeg stdout:\n{proc.stdout}")
+        if proc.stderr:  # Often contains useful info even on success
+            logger.debug(f"ffmpeg stderr:\n{proc.stderr}")
