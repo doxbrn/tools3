@@ -5,7 +5,7 @@ import threading
 from flask import Blueprint, request, jsonify
 # Import service function and position mapping
 from services.v1.video.add_overlay_music import (
-    add_overlay_and_music, OVERLAY_POSITIONS
+    add_overlay_and_music, OVERLAY_POSITION_COORDS, SUPPORTED_BLEND_MODES
 )
 from services.authentication import authenticate
 from app_utils import validate_payload
@@ -31,7 +31,7 @@ _payload_schema = {
         "content_id": {"type": "string"},  # Required for tracking/temp files
         "overlay_position": {
             "type": "string",
-            "enum": list(OVERLAY_POSITIONS.keys()),
+            "enum": ["full"] + list(OVERLAY_POSITION_COORDS.keys()),
             "default": "bottom-right"
         },
         "music_volume": {
@@ -40,7 +40,17 @@ _payload_schema = {
             "maximum": 2.0,  # Allow doubling volume, default is 0.5
             "default": 0.5
         },
-        "output_filename": {"type": "string", "minLength": 1}
+        "output_filename": {"type": "string", "minLength": 1},
+        "overlay_opacity": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "default": 1.0
+        },
+        "overlay_blend_mode": {
+            "type": "string",
+            "enum": SUPPORTED_BLEND_MODES,
+        }
     },
     "required": [
         "input_video_url",
@@ -71,8 +81,10 @@ def add_overlay_music_endpoint():
     )
 
     # Prepare arguments for the background task
-    overlay_default = _payload_schema['properties']['overlay_position']['default']
-    music_vol_default = _payload_schema['properties']['music_volume']['default']
+    props = _payload_schema['properties']
+    overlay_default = props['overlay_position']['default']
+    music_vol_default = props['music_volume']['default']
+    opacity_default = props['overlay_opacity']['default']
     
     task_kwargs = {
         'content_id': content_id,
@@ -82,8 +94,9 @@ def add_overlay_music_endpoint():
         'webhook_url': webhook_url,
         'overlay_position': payload.get('overlay_position', overlay_default),
         'music_volume': payload.get('music_volume', music_vol_default),
-         # Optional, defaults to None
-        'output_filename': payload.get('output_filename')
+        'output_filename': payload.get('output_filename'),
+        'overlay_opacity': payload.get('overlay_opacity', opacity_default),
+        'overlay_blend_mode': payload.get('overlay_blend_mode')
     }
 
     # Start processing in a background thread
