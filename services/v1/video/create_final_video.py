@@ -6,7 +6,11 @@ import subprocess
 import requests
 import logging
 
-from config import LOCAL_STORAGE_PATH
+from config import (
+    LOCAL_STORAGE_PATH, S3_ENDPOINT_URL, S3_ACCESS_KEY, 
+    S3_SECRET_KEY, S3_BUCKET_NAME, S3_REGION
+)
+from services.s3_toolkit import upload_to_s3  # Import S3 toolkit
 
 logger = logging.getLogger(__name__)
 
@@ -41,10 +45,11 @@ def create_final_video(content_id: str,
                        scenes: list[dict],
                        webhook_url: str):
     """
-    Monta e concatena cada cena (imagem+áudio) num vídeo final.
-    Envia o resultado (path ou erro) para a webhook_url.
+    Monta o vídeo, faz upload para S3, e envia a URL S3 para a webhook.
     """
+    work_dir = None  # Initialize work_dir
     final_video_path = None
+    s3_url = None  # Initialize s3_url
     status = "failed"
     error_message = None
 
@@ -70,11 +75,27 @@ def create_final_video(content_id: str,
         # 3. Concatena segmentos
         final_video_path = os.path.join(work_dir, f"{content_id}_final.mp4")
         _concat_segments(segment_paths, final_video_path)
+        logger.info(f"Video concatenado localmente: {final_video_path}")
 
-        # 4. TODO: overlays, captions, background music
-        #     e.g. _apply_overlays(final_video), _add_captions(final_video), etc.
+        # 4. Upload para S3
+        logger.info(f"Iniciando upload para S3: {S3_BUCKET_NAME}")
+        # Use just filename as key for now. Consider adding a path prefix.
+        # s3_key_base = os.path.basename(final_video_path) 
+        s3_url = upload_to_s3(
+            file_path=final_video_path,
+            s3_url=S3_ENDPOINT_URL,
+            access_key=S3_ACCESS_KEY,
+            secret_key=S3_SECRET_KEY,
+            bucket_name=S3_BUCKET_NAME,
+            region=S3_REGION
+            # Consider passing a specific s3_key like 
+            # f"videos/{content_id}/{os.path.basename(final_video_path)}"
+        )
+        logger.info(f"Upload para S3 concluído: {s3_url}")
 
-        logger.info(f"Video criado com sucesso: {final_video_path}")
+        # 5. TODO: Apply overlays, captions, background music etc.
+        #     to final_video_path before declaring completed status.
+
         status = "completed"
 
     except VideoCreationError as e:
@@ -84,26 +105,41 @@ def create_final_video(content_id: str,
 
     except Exception as e:
         logger.error(
-            f"Unexpected error creating video for {content_id}: {e}", 
+            f"Unexpected error creating/uploading video for {content_id}: {e}", 
             exc_info=True
         )
         # Assign generic error message for unexpected errors
-        error_message = "Unexpected internal error during video creation."
+        error_message = (
+            f"Unexpected internal error during video creation/upload "
+            f"for {content_id}."
+        )
         status = "failed"
 
     finally:
-        # --- Send webhook regardless of success or failure ---
+        # --- Send webhook --- 
         webhook_payload = {
             "content_id": content_id,
             "status": status
         }
-        if status == "completed" and final_video_path:
-            webhook_payload["video_path"] = final_video_path
+        if status == "completed" and s3_url:
+            # Send s3_url instead of local path
+            webhook_payload["s3_url"] = s3_url  
         elif error_message:
             webhook_payload["error"] = error_message
         
         _send_webhook(webhook_url, webhook_payload)
-        # --- --- --- --- --- --- --- --- --- --- --- --- --- ---
+        # --- --- --- --- ---
+
+        # --- Clean up local files --- 
+        if work_dir and os.path.exists(work_dir):
+            try:
+                logger.info(f"Cleaning up local work directory: {work_dir}")
+                shutil.rmtree(work_dir)
+            except Exception as e:
+                logger.error(f"Failed to clean up work directory {work_dir}: {e}")
+        # --- --- --- --- --- --- ---
+
+    # This function now doesn't return anything directly
 
 
 def _create_scene_segment(scene: dict, work_dir: str) -> str:
