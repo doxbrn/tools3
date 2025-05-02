@@ -18,7 +18,6 @@ import os
 import shutil
 import logging
 import subprocess
-import json
 import requests
 import tempfile
 from config import (
@@ -225,19 +224,41 @@ def create_final_video(job_id, scenes, title=None, webhook_url=None,
             shutil.move(temp_video_path, final_video_path)
             
         # Add captions if enabled
-        if video_options["captions"]["enabled"]:
-            captions_style = video_options["captions"]["style"]
-            temp_video_path = os.path.join(job_dir, f"temp_with_captions.mp4")
-            
-            # Extract text from all scenes
-            all_text = ""
-            for i, scene in enumerate(scenes):
-                if "text" in scene:
-                    all_text += f"{scene['text']}\n"
-            
-            if all_text:
-                process_captioning(final_video_path, all_text, temp_video_path, style=captions_style)
-                shutil.move(temp_video_path, final_video_path)
+        if advanced_options and "captions" in advanced_options:
+            captions_config = advanced_options.get("captions", {})
+            # Only process captions if configuration exists
+            if captions_config:
+                captions_enabled = captions_config.get("enabled", False)
+                captions_style = captions_config.get("style", "Padrão")
+                temp_video_path = os.path.join(job_dir, f"temp_with_captions.mp4")
+                
+                # Extract text from all scenes if available
+                all_text = ""
+                for i, scene in enumerate(scenes):
+                    scene_text = scene.get("text", "")
+                    if scene_text:
+                        all_text += f"{scene_text}\n"
+                
+                # Only process if we have text content
+                if all_text and captions_enabled:
+                    try:
+                        caption_type = captions_config.get("caption_type", "srt")
+                        caption_style_options = captions_config.get("caption_style", {})
+                        # Convert the style to the format expected by process_captioning
+                        options = [{"option": k, "value": v} for k, v in caption_style_options.items()] if caption_style_options else []
+                        
+                        temp_video_path = process_captioning(
+                            final_video_path,
+                            all_text,
+                            caption_type,
+                            options,
+                            job_id
+                        )
+                        # Only move if the captioning was successful
+                        if os.path.exists(temp_video_path):
+                            shutil.move(temp_video_path, final_video_path)
+                    except Exception as e:
+                        logger.warning(f"Job {job_id}: Caption processing failed, continuing without captions: {str(e)}")
 
         # Execute the command to combine videos
         try:

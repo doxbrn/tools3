@@ -98,8 +98,7 @@ logger = logging.getLogger(__name__)
                                 "alignment": {"type": "integer", "minimum": 1, "maximum": 9}
                             }
                         }
-                    },
-                    "required": ["caption_text"]
+                    }
                 }
             }
         }
