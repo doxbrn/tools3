@@ -203,6 +203,8 @@ def create_app():
     from routes.v1.video.create_final_video import (
         v1_video_create_final_video_bp
     )
+    # Import the new blueprint
+    from routes.v1.video.add_overlay_music import v1_video_add_overlay_music_bp
 
     app.register_blueprint(v1_ffmpeg_compose_bp)
     app.register_blueprint(v1_media_transcribe_bp)
@@ -230,6 +232,8 @@ def create_app():
     app.register_blueprint(v1_video_trim_bp)
     app.register_blueprint(v1_media_metadata_bp)
     app.register_blueprint(v1_video_create_final_video_bp)
+    # Register the new blueprint
+    app.register_blueprint(v1_video_add_overlay_music_bp)
 
     return app
 
