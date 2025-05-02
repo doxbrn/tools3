@@ -243,7 +243,7 @@ def create_final_video_route():
     "additionalProperties": False
 })
 @queue_task_wrapper(bypass_queue=False)
-def create_final_video(job_id, data):
+def create_final_video_v1_route(job_id, data):
     scenes = data['scenes']
     title = data.get('title')
     webhook_url = data.get('webhook_url')
@@ -256,8 +256,9 @@ def create_final_video(job_id, data):
     )
 
     try:
-        output_file = process_create_final_video(
-            scenes, job_id, title, webhook_url, advanced_options
+        # Call the imported create_final_video function from the services module
+        output_file = create_final_video(
+            job_id, scenes, title, webhook_url, request_id, advanced_options
         )
         logger.info(
             f"Job {job_id}: Final video creation completed successfully"
