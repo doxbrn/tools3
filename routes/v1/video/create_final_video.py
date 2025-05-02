@@ -121,9 +121,27 @@ def create_final_video_v1_route(job_id, data):
 
     try:
         # Call the imported create_final_video function from the services module
-        output_file = create_final_video(
+        result = create_final_video(
             job_id, scenes, title, webhook_url, request_id, advanced_options
         )
+        
+        # Check if the result is a dictionary with status or a direct path
+        if isinstance(result, dict):
+            if result.get('status') == 'failed':
+                error_message = result.get('error', 'Unknown error')
+                logger.error(
+                    f"Job {job_id}: Video creation failed: {error_message}"
+                )
+                return error_message, "/v1/video/create-final-video", 500
+            
+            # If success, get the video_url from the result
+            output_file = result.get('video_url')
+            if not output_file:
+                raise ValueError("No video URL in the success response")
+        else:
+            # Assume result is the direct output file path
+            output_file = result
+            
         logger.info(
             f"Job {job_id}: Final video creation completed successfully"
         )

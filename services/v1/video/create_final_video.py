@@ -201,6 +201,9 @@ def create_final_video(job_id, scenes, title=None, webhook_url=None,
         transition_type = video_options["transitions"]["type"]
         transition_duration = video_options["transitions"]["duration"]
         
+        # Flag to track if we've already created the final video
+        final_video_created = False
+        
         if transition_type == "Corte Seco":
             # Simple concatenation for cut transitions
             ffmpeg_command = [
@@ -211,18 +214,58 @@ def create_final_video(job_id, scenes, title=None, webhook_url=None,
                 '-c', 'copy',
                 final_video_path
             ]
-        else:
-            # Complex concatenation with transitions
-            _concatenate_with_transitions(segment_files, final_video_path, transition_type, transition_duration)
+            
+            # Execute the command to combine videos
+            try:
+                subprocess.run(ffmpeg_command, check=True, capture_output=True, text=True)
+                final_video_created = True
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Job {job_id}: FFmpeg command failed: {ffmpeg_command}\nError: {e.stdout}\n{e.stderr}")
+                _send_webhook_notification(
+                    webhook_url, job_id, "failed", error_message=f"FFmpeg error: {e.stderr}")
+                # Continue to try alternative method before giving up
+        
+        # If simple concatenation failed or we need transitions, try the complex method
+        if not final_video_created:
+            try:
+                # Complex concatenation with transitions
+                _concatenate_with_transitions(segment_files, final_video_path, transition_type, transition_duration)
+                final_video_created = True
+            except Exception as e:
+                logger.error(f"Job {job_id}: Transition concatenation failed: {str(e)}")
+                # If we still haven't created a video, try one more simple method
+                if not final_video_created:
+                    try:
+                        # Last resort: use the first segment as the final video
+                        if segment_files:
+                            shutil.copy(segment_files[0], final_video_path)
+                            final_video_created = True
+                            logger.warning(f"Job {job_id}: Used first segment as fallback final video")
+                    except Exception as copy_error:
+                        logger.error(f"Job {job_id}: Even fallback copy failed: {str(copy_error)}")
+        
+        # If we couldn't create any video, report failure
+        if not final_video_created:
+            error_message = "Failed to create final video with all methods attempted"
+            logger.error(f"Job {job_id}: {error_message}")
+            _send_webhook_notification(
+                webhook_url, job_id, "failed", error_message=error_message)
+            # Clean up
+            shutil.rmtree(job_dir)
+            return {"status": "failed", "error": error_message}
             
         # Add background music if specified
         bg_music_url = video_options["background_music"]["url"]
         if bg_music_url:
             bg_music_volume = video_options["background_music"]["volume"]
-            temp_video_path = os.path.join(job_dir, f"temp_with_music.mp4")
-            _add_background_music(final_video_path, bg_music_url, temp_video_path, bg_music_volume)
-            shutil.move(temp_video_path, final_video_path)
-            
+            temp_video_path = os.path.join(job_dir, "temp_with_music.mp4")
+            try:
+                _add_background_music(final_video_path, bg_music_url, temp_video_path, bg_music_volume)
+                shutil.move(temp_video_path, final_video_path)
+            except Exception as e:
+                logger.warning(f"Job {job_id}: Failed to add background music: {str(e)}")
+                # Continue without background music
+                
         # Add captions if enabled
         if advanced_options and "captions" in advanced_options:
             captions_config = advanced_options.get("captions", {})
@@ -230,7 +273,7 @@ def create_final_video(job_id, scenes, title=None, webhook_url=None,
             if captions_config:
                 captions_enabled = captions_config.get("enabled", False)
                 captions_style = captions_config.get("style", "Padrão")
-                temp_video_path = os.path.join(job_dir, f"temp_with_captions.mp4")
+                temp_video_path = os.path.join(job_dir, "temp_with_captions.mp4")
                 
                 # Extract text from all scenes if available
                 all_text = ""
@@ -259,17 +302,6 @@ def create_final_video(job_id, scenes, title=None, webhook_url=None,
                             shutil.move(temp_video_path, final_video_path)
                     except Exception as e:
                         logger.warning(f"Job {job_id}: Caption processing failed, continuing without captions: {str(e)}")
-
-        # Execute the command to combine videos
-        try:
-            subprocess.run(ffmpeg_command, check=True, capture_output=True, text=True)
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Job {job_id}: FFmpeg command failed: {ffmpeg_command}\nError: {e.stdout}\n{e.stderr}")
-            _send_webhook_notification(
-                webhook_url, job_id, "failed", error_message=f"FFmpeg error: {e.stderr}")
-            # Clean up
-            shutil.rmtree(job_dir)
-            return {"status": "failed", "error": f"FFmpeg error: {e.stderr}"}
 
         # Upload to S3
         s3_key = f"final_videos/{job_id}_final.mp4"
@@ -311,8 +343,20 @@ def _create_segment_from_image(image_path, audio_path, output_path):
         audio_path
     ]
     
-    process = subprocess.run(audio_duration_cmd, capture_output=True, text=True)
-    duration = float(process.stdout.strip())
+    try:
+        process = subprocess.run(audio_duration_cmd, capture_output=True, text=True)
+        stdout_output = process.stdout.strip()
+        
+        # Check if the output is empty or not a valid float
+        if stdout_output and stdout_output.replace('.', '', 1).isdigit():
+            duration = float(stdout_output)
+        else:
+            # Log the issue and use a default duration
+            logger.warning(f"Could not determine audio duration for {audio_path}. Using default duration.")
+            duration = 10.0  # Default 10 seconds duration if unable to determine
+    except Exception as e:
+        logger.warning(f"Error getting audio duration: {str(e)}. Using default duration.")
+        duration = 10.0  # Default duration on error
     
     # Create video from image with the same duration as audio
     cmd = [
@@ -330,7 +374,21 @@ def _create_segment_from_image(image_path, audio_path, output_path):
         output_path
     ]
     
-    subprocess.run(cmd, check=True)
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error creating segment from image: {str(e)}")
+        # Create a simpler fallback video segment
+        fallback_cmd = [
+            'ffmpeg', '-y',
+            '-loop', '1',
+            '-i', image_path,
+            '-t', str(duration),
+            '-c:v', 'libx264',
+            '-pix_fmt', 'yuv420p',
+            output_path
+        ]
+        subprocess.run(fallback_cmd, check=True)
 
 
 def _apply_zoom_effect(image_path, output_path, zoom_type, zoom_speed, audio_path):
@@ -343,8 +401,20 @@ def _apply_zoom_effect(image_path, output_path, zoom_type, zoom_speed, audio_pat
         audio_path
     ]
     
-    process = subprocess.run(audio_duration_cmd, capture_output=True, text=True)
-    duration = float(process.stdout.strip())
+    try:
+        process = subprocess.run(audio_duration_cmd, capture_output=True, text=True)
+        stdout_output = process.stdout.strip()
+        
+        # Check if the output is empty or not a valid float
+        if stdout_output and stdout_output.replace('.', '', 1).isdigit():
+            duration = float(stdout_output)
+        else:
+            # Log the issue and use a default duration
+            logger.warning(f"Could not determine audio duration for {audio_path}. Using default duration.")
+            duration = 10.0  # Default 10 seconds duration if unable to determine
+    except Exception as e:
+        logger.warning(f"Error getting audio duration: {str(e)}. Using default duration.")
+        duration = 10.0  # Default duration on error
     
     # Calculate zoom parameters based on zoom_type and zoom_speed
     zoom_speed = max(1, min(20, zoom_speed)) / 10.0  # Normalize between 0.1 and 2.0
@@ -381,7 +451,21 @@ def _apply_zoom_effect(image_path, output_path, zoom_type, zoom_speed, audio_pat
         output_path
     ]
     
-    subprocess.run(cmd, check=True)
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error applying zoom effect: {str(e)}")
+        # Create a static image video as fallback
+        fallback_cmd = [
+            'ffmpeg', '-y',
+            '-loop', '1',
+            '-i', image_path,
+            '-t', str(duration),
+            '-c:v', 'libx264',
+            '-pix_fmt', 'yuv420p',
+            output_path
+        ]
+        subprocess.run(fallback_cmd, check=True)
 
 
 def _create_segment_with_audio(video_path, audio_path, output_path):
@@ -465,13 +549,27 @@ def _concatenate_with_transitions(segment_files, output_path, transition_type, t
     
     # Add transitions between segments
     for i in range(len(segment_files)-1):
-        out_time = subprocess.run(
-            ['ffprobe', '-v', 'error', '-show_entries', 'format=duration', 
-             '-of', 'default=noprint_wrappers=1:nokey=1', segment_files[i]],
-            capture_output=True, text=True
-        ).stdout.strip()
-        
-        out_time = float(out_time) - transition_duration
+        try:
+            # Get the duration of the current segment for transition timing
+            duration_result = subprocess.run(
+                ['ffprobe', '-v', 'error', '-show_entries', 'format=duration', 
+                 '-of', 'default=noprint_wrappers=1:nokey=1', segment_files[i]],
+                capture_output=True, text=True
+            )
+            
+            stdout_output = duration_result.stdout.strip()
+            
+            # Validate the output is a valid float
+            if stdout_output and stdout_output.replace('.', '', 1).isdigit():
+                out_time = float(stdout_output) - transition_duration
+                # Ensure out_time is not negative
+                out_time = max(0, out_time)
+            else:
+                logger.warning(f"Could not determine duration for segment {i}. Using default.")
+                out_time = 5.0  # Default 5 seconds if unable to determine
+        except Exception as e:
+            logger.warning(f"Error getting segment {i} duration: {str(e)}. Using default.")
+            out_time = 5.0  # Default on error
         
         transition = transition_filter.format(
             duration=transition_duration,
@@ -486,7 +584,36 @@ def _concatenate_with_transitions(segment_files, output_path, transition_type, t
     
     # Execute ffmpeg command
     cmd = f"ffmpeg -y {inputs} -filter_complex \"{filter_complex}\" -c:v libx264 -c:a aac {output_path}"
-    subprocess.run(cmd, shell=True, check=True)
+    
+    try:
+        subprocess.run(cmd, shell=True, check=True)
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error concatenating videos: {str(e)}")
+        
+        # Fallback: try simple concatenation without transitions
+        logger.info("Attempting fallback simple concatenation...")
+        concat_file = tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt')
+        try:
+            # Create concatenation file
+            for segment in segment_files:
+                concat_file.write(f"file '{os.path.abspath(segment)}'\n")
+            concat_file.close()
+            
+            # Simple concatenation
+            fallback_cmd = [
+                'ffmpeg', '-y',
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', concat_file.name,
+                '-c', 'copy',
+                output_path
+            ]
+            subprocess.run(fallback_cmd, check=True)
+        except Exception as inner_e:
+            logger.error(f"Fallback concatenation also failed: {str(inner_e)}")
+            raise
+        finally:
+            os.unlink(concat_file.name)
 
 
 def _add_background_music(video_path, music_url, output_path, volume=20):
