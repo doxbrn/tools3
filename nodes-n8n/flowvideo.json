@@ -1,0 +1,168 @@
+{
+    "nodes": [
+        {
+            "parameters": {},
+            "type": "n8n-nodes-base.manualTrigger",
+            "typeVersion": 1,
+            "position": [
+                -740,
+                -1280
+            ],
+            "id": "c13ef87e-e783-4a13-ae50-fd876131175d",
+            "name": "When clicking ‘Test workflow’"
+        },
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "get-render-video",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2,
+            "position": [
+                -740,
+                -1500
+            ],
+            "id": "cc1f6710-5c23-4526-9b6c-6b123f3f46e5",
+            "name": "Webhook1",
+            "webhookId": "da1bfa21-f221-47b7-be04-f64abd50301f"
+        },
+        {
+            "parameters": {
+                "base": {
+                    "__rl": true,
+                    "value": "appVgvW0XEsJLXZ0P",
+                    "mode": "list",
+                    "cachedResultName": "Content Flow",
+                    "cachedResultUrl": "https://airtable.com/appVgvW0XEsJLXZ0P"
+                },
+                "table": {
+                    "__rl": true,
+                    "value": "tblG4KH7skP2FYfm3",
+                    "mode": "list",
+                    "cachedResultName": "Conteudos",
+                    "cachedResultUrl": "https://airtable.com/appVgvW0XEsJLXZ0P/tblG4KH7skP2FYfm3"
+                },
+                "id": "recN53J5hcVKz3DFx",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.airtable",
+            "typeVersion": 2.1,
+            "position": [
+                -340,
+                -1300
+            ],
+            "id": "31f8a492-aad1-475c-96ae-a1c37d961591",
+            "name": "Airtable7",
+            "credentials": {
+                "airtableTokenApi": {
+                    "id": "tpzNdnPQRTnUSF6I",
+                    "name": "Airtable Personal Access Token account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://tools.paradox8.com/v1/video/create-final-video",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "x-api-key",
+                            "value": "=123456"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={{ $json }}",
+                "options": {
+                    "allowUnauthorizedCerts": true,
+                    "response": {
+                        "response": {
+                            "fullResponse": true,
+                            "neverError": true
+                        }
+                    }
+                }
+            },
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                740,
+                -1300
+            ],
+            "id": "e87b96bd-9d1f-47de-8e60-1ee426e1ea6c",
+            "name": "Create Final Video"
+        },
+        {
+            "parameters": {
+                "jsCode": "// n8n Function node code\n\n// 1) Extrai o registro do Airtable\nconst input = items[0].json;\n\n// 2) Valida arrays de cenas (imagens + áudios)\nconst imageUrls = input[\"url_s3_image (from Cenas)\"];\nconst audioUrls = input[\"url_s3_audio (from Cenas)\"];\nconst sceneTexts = input[\"Texto_Cena (from Cenas)\"];\n\nif (\n  !Array.isArray(imageUrls) ||\n  !Array.isArray(audioUrls) ||\n  imageUrls.length === 0 ||\n  imageUrls.length !== audioUrls.length\n) {\n  return [{ json: { error: \"Invalid or missing scene data (images or audios)\" } }];\n}\n\n// 3) Monta o array de cenas\nconst scenes = imageUrls.map((imageUrl, index) => {\n  const scene = {\n    image_url: imageUrl,\n    audio_url: audioUrls[index],\n  };\n  if (Array.isArray(sceneTexts) && sceneTexts[index]) {\n    scene.text = sceneTexts[index];\n  }\n  return scene;\n});\n\n// 4) Monta opções avançadas globais a partir dos campos de canal\nconst advancedOptions = {};\n\n// Overlay\nif (Array.isArray(input[\"Video_Overlay_URL (from Canal)\"]) && input[\"Video_Overlay_URL (from Canal)\"].length) {\n  advancedOptions.overlay = {\n    url: input[\"Video_Overlay_URL (from Canal)\"][0],\n    position: Array.isArray(input[\"Video_Overlay_Posicao (from Canal)\"])\n      ? input[\"Video_Overlay_Posicao (from Canal)\"][0]\n      : \"Centro\",\n    opacity: Array.isArray(input[\"Video_Overlay_Opacidade (from Canal)\"])\n      ? input[\"Video_Overlay_Opacidade (from Canal)\"][0]\n      : 100,\n  };\n}\n\n// Zoom\nif (Array.isArray(input[\"Video_Zoom_Padrao (from Canal)\"]) && input[\"Video_Zoom_Padrao (from Canal)\"].length) {\n  advancedOptions.zoom = {\n    type: input[\"Video_Zoom_Padrao (from Canal)\"][0],\n    speed: Array.isArray(input[\"Video_Zoom_Velocidade (from Canal)\"])\n      ? input[\"Video_Zoom_Velocidade (from Canal)\"][0]\n      : 1,\n  };\n}\n\n// Transitions\nif (Array.isArray(input[\"Video_Transicoes_Tipo (from Canal)\"]) && input[\"Video_Transicoes_Tipo (from Canal)\"].length) {\n  advancedOptions.transitions = {\n    type: input[\"Video_Transicoes_Tipo (from Canal)\"][0],\n    duration: Array.isArray(input[\"Video_Transicoes_Duracao (from Canal)\"])\n      ? input[\"Video_Transicoes_Duracao (from Canal)\"][0]\n      : 1,\n  };\n}\n\n// Captions\nif (Array.isArray(input[\"Video_Legendas_Estilo (from Canal)\"]) && input[\"Video_Legendas_Estilo (from Canal)\"].length) {\n  advancedOptions.captions = {\n    enabled: true,\n    style: input[\"Video_Legendas_Estilo (from Canal)\"][0],\n  };\n}\n\n// 5) Monta o payload final\nconst payload = {\n  id: input[\"Record_ID_Airtable\"] || \"\",\n  title: input[\"Tema Name\"] || \"\",\n  scenes,\n  webhook_url: input.webhook_url || \"https://api.paradox8.com/webhook/get-render-video\",\n};\n\nif (Object.keys(advancedOptions).length) {\n  payload.advanced_options = advancedOptions;\n}\n\n// 6) Retorna para o próximo nó HTTP Request\nreturn [{ json: payload }];"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -60,
+                -1300
+            ],
+            "id": "2c7f6253-46bf-495e-bf70-d4ad87b6d17e",
+            "name": "Code4"
+        }
+    ],
+    "connections": {
+        "When clicking ‘Test workflow’": {
+            "main": [
+                [
+                    {
+                        "node": "Airtable7",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Webhook1": {
+            "main": [
+                [
+                    {
+                        "node": "Airtable7",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Airtable7": {
+            "main": [
+                [
+                    {
+                        "node": "Code4",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Code4": {
+            "main": [
+                [
+                    {
+                        "node": "Create Final Video",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "pinData": {},
+    "meta": {
+        "templateCredsSetupCompleted": true,
+        "instanceId": "0702d98d5e5ce0169efd194d601636a5f8df4c48cea7ff70230e5bc3bbbb97f4"
+    }
+}

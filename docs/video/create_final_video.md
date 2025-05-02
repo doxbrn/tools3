@@ -1,207 +1,255 @@
-# Create Final Video Endpoint
+# Video Processing - Create Final Video
 
-## 1. Overview
+## Descrição
 
-The `/v1/video/create-final-video` endpoint is a part of the Video API and is responsible for creating a final video by combining multiple scenes, each consisting of an image and audio. This endpoint is particularly useful for content creators who need to assemble a complete video from individual scene components. It fits into the overall API structure as a part of the version 1 (v1) routes, specifically under the `/v1/video` namespace.
+Este endpoint cria um vídeo final combinando múltiplas cenas (imagem + áudio). Cada cena pode ter efeitos visuais aplicados, e o vídeo final pode incluir música de fundo, overlay e legendas.
 
-## 2. Endpoint
+## Endpoint API
 
-**URL Path:** `/v1/video/create-final-video`
-**HTTP Method:** `POST`
+```
+POST /v1/video/create-final-video
+```
 
-## 3. Request
+## Parâmetros da Requisição
 
-### Headers
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|-----------|------|------------|------------|
+| scenes | array | Sim | Array de cenas para incluir no vídeo |
+| title | string | Não | Título do vídeo (usado em notificações) |
+| webhook_url | string | Não | URL para notificar quando o processamento for concluído |
+| id | string | Não | Identificador personalizado para o vídeo |
+| advanced_options | object | Não | Opções avançadas de processamento de vídeo |
 
-- `x-api-key` (required): The API key for authentication.
+### Estrutura de Cena
 
-### Body Parameters
-
-The request body must be a JSON object with the following properties:
-
-- `scenes` (required, array of objects): An array of scene objects, each containing:
-  - `image_url` (required, string, URI format): The URL of the image for the scene.
-  - `audio_url` (required, string, URI format): The URL of the audio for the scene.
-- `title` (optional, string): A title for the final video.
-- `webhook_url` (optional, string, URI format): The URL to which the response should be sent as a webhook.
-- `id` (optional, string): An identifier for the request.
-
-The `validate_payload` decorator in the routes file enforces the following JSON schema for the request body:
+Cada cena no array `scenes` deve ter a seguinte estrutura:
 
 ```json
 {
-    "type": "object",
-    "properties": {
-        "scenes": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "image_url": {"type": "string", "format": "uri"},
-                    "audio_url": {"type": "string", "format": "uri"}
-                },
-                "required": ["image_url", "audio_url"]
-            },
-            "minItems": 1
-        },
-        "title": {"type": "string"},
-        "webhook_url": {"type": "string", "format": "uri"},
-        "id": {"type": "string"}
+  "image_url": "https://exemplo.com/imagem.jpg",
+  "audio_url": "https://exemplo.com/audio.mp3",
+  "text": "Texto opcional para legendas",
+  "options": {
+    "overlay": {
+      "url": "https://exemplo.com/overlay.png",
+      "position": "Topo",
+      "opacity": 80
     },
-    "required": ["scenes"],
-    "additionalProperties": false
+    "zoom": {
+      "type": "Zoom In",
+      "speed": 5
+    }
+  }
 }
 ```
 
-### Example Request
+### Opções Avançadas Globais
+
+O objeto `advanced_options` permite definir configurações globais para todo o vídeo:
 
 ```json
 {
-    "scenes": [
-        {
-            "image_url": "https://example.com/scene1_image.jpg",
-            "audio_url": "https://example.com/scene1_audio.wav"
-        },
-        {
-            "image_url": "https://example.com/scene2_image.jpg",
-            "audio_url": "https://example.com/scene2_audio.wav"
-        },
-        {
-            "image_url": "https://example.com/scene3_image.jpg",
-            "audio_url": "https://example.com/scene3_audio.wav"
+  "overlay": {
+    "url": "https://exemplo.com/overlay-global.png",
+    "position": "Topo",
+    "opacity": 80
+  },
+  "zoom": {
+    "type": "Zoom In",
+    "speed": 5
+  },
+  "background_music": {
+    "url": "https://exemplo.com/musica-fundo.mp3",
+    "volume": 20
+  },
+  "captions": {
+    "enabled": true,
+    "style": "Padrão"
+  },
+  "transitions": {
+    "type": "Fade",
+    "duration": 1.0
+  }
+}
+```
+
+## Opções Detalhadas
+
+### Overlay
+
+| Opção | Tipo | Valores Possíveis | Descrição |
+|-------|------|-------------------|-----------|
+| url | string | URL válida | URL do arquivo de overlay (geralmente PNG com transparência) |
+| position | string | "Topo", "Centro", "Base", "Personalizado" | Posição do overlay no vídeo |
+| opacity | number | 0-100 | Opacidade do overlay em porcentagem |
+
+### Zoom
+
+| Opção | Tipo | Valores Possíveis | Descrição |
+|-------|------|-------------------|-----------|
+| type | string | "Zoom In", "Zoom Out", "Pan Horizontal", "Pan Vertical", "Ken Burns", "Nenhum" | Tipo de efeito de zoom |
+| speed | number | 1-20 | Velocidade do efeito em porcentagem |
+
+#### Tipos de Zoom
+- **Zoom In**: Aproxima gradualmente a imagem
+- **Zoom Out**: Afasta gradualmente a imagem
+- **Pan Horizontal**: Move horizontalmente pela imagem
+- **Pan Vertical**: Move verticalmente pela imagem
+- **Ken Burns**: Combinação de movimento e zoom aleatórios
+- **Nenhum**: Imagem estática sem efeitos
+
+### Música de Fundo
+
+| Opção | Tipo | Valores Possíveis | Descrição |
+|-------|------|-------------------|-----------|
+| url | string | URL válida | URL do arquivo de áudio para música de fundo |
+| volume | number | 0-100 | Volume da música de fundo em porcentagem |
+
+### Legendas
+
+| Opção | Tipo | Valores Possíveis | Descrição |
+|-------|------|-------------------|-----------|
+| enabled | boolean | true/false | Ativa ou desativa as legendas |
+| style | string | "Padrão", "Contrastado", "Minimalista", "Grande" | Estilo visual das legendas |
+
+### Transições
+
+| Opção | Tipo | Valores Possíveis | Descrição |
+|-------|------|-------------------|-----------|
+| type | string | "Corte Seco", "Fade", "Dissolver", "Deslizar", "Zoom" | Tipo de transição entre cenas |
+| duration | number | 0.1-3.0 | Duração da transição em segundos |
+
+## Configuração via Airtable
+
+As opções avançadas também podem ser configuradas no Airtable por canal ou por cena:
+
+### Configuração por Canal (tabela "Canais")
+
+| Campo | Descrição |
+|-------|-----------|
+| Resolucao_Padrao | Resolução do vídeo (1920x1080, 1080x1920, etc.) |
+| Frame_Rate_Padrao | Taxa de quadros do vídeo |
+| Zoom_Tipo | Tipo de zoom padrão para todas as cenas |
+| Zoom_Speed_Imagem (%) | Velocidade do zoom em porcentagem |
+| Overlay_Default_URL | URL do overlay padrão |
+| Overlay_Posicao | Posição padrão do overlay |
+| Overlay_Opacidade | Opacidade do overlay em porcentagem |
+| Musica_Fundo_Default_URL | URL da música de fundo padrão |
+| Volume_Musica_Fundo (%) | Volume da música de fundo em porcentagem |
+| Legendas_Ativar | Ativa ou desativa legendas |
+| Legendas_Estilo | Estilo visual das legendas |
+| Efeitos_Transicao | Tipo de transição entre cenas |
+| Duracao_Transicao_Seg | Duração da transição em segundos |
+
+### Configuração por Cena (tabela "Cenas")
+
+| Campo | Descrição |
+|-------|-----------|
+| Zoom_Tipo_Custom | Sobrescreve o tipo de zoom do canal para esta cena |
+| Zoom_Speed_Custom | Sobrescreve a velocidade do zoom para esta cena |
+| Overlay_Custom_URL | Sobrescreve o overlay do canal para esta cena |
+| Musica_Fundo_Custom_URL | Sobrescreve a música de fundo para esta cena |
+| Volume_Musica_Custom | Sobrescreve o volume da música para esta cena |
+
+## Prioridade das Configurações
+
+O sistema usa a seguinte ordem de prioridade para determinar as configurações a serem aplicadas:
+
+1. Opções específicas da cena no payload (mais alta prioridade)
+2. Configurações da cena no Airtable
+3. Opções avançadas globais no payload
+4. Configurações do canal no Airtable (mais baixa prioridade)
+
+## Exemplo de Requisição
+
+```json
+{
+  "scenes": [
+    {
+      "image_url": "https://exemplo.com/imagem1.jpg",
+      "audio_url": "https://exemplo.com/audio1.mp3",
+      "text": "Esta é a primeira cena com zoom in",
+      "options": {
+        "zoom": {
+          "type": "Zoom In",
+          "speed": 8
         }
-    ],
-    "title": "My Final Video",
-    "webhook_url": "https://example.com/webhook",
-    "id": "request-123"
+      }
+    },
+    {
+      "image_url": "https://exemplo.com/imagem2.jpg",
+      "audio_url": "https://exemplo.com/audio2.mp3",
+      "text": "Esta é a segunda cena com pan horizontal",
+      "options": {
+        "zoom": {
+          "type": "Pan Horizontal",
+          "speed": 5
+        },
+        "overlay": {
+          "url": "https://exemplo.com/overlay-cena2.png",
+          "position": "Base",
+          "opacity": 70
+        }
+      }
+    }
+  ],
+  "title": "Meu Vídeo com Efeitos",
+  "webhook_url": "https://meuservidor.com/webhook",
+  "id": "video-123",
+  "advanced_options": {
+    "overlay": {
+      "url": "https://exemplo.com/overlay-padrao.png",
+      "position": "Topo",
+      "opacity": 80
+    },
+    "background_music": {
+      "url": "https://exemplo.com/musica-fundo.mp3",
+      "volume": 15
+    },
+    "captions": {
+      "enabled": true,
+      "style": "Contrastado"
+    },
+    "transitions": {
+      "type": "Fade",
+      "duration": 1.2
+    }
+  }
 }
 ```
 
-```bash
-curl -X POST \
-     -H "x-api-key: YOUR_API_KEY" \
-     -H "Content-Type: application/json" \
-     -d '{
-        "scenes": [
-            {
-                "image_url": "https://example.com/scene1_image.jpg",
-                "audio_url": "https://example.com/scene1_audio.wav"
-            },
-            {
-                "image_url": "https://example.com/scene2_image.jpg",
-                "audio_url": "https://example.com/scene2_audio.wav"
-            },
-            {
-                "image_url": "https://example.com/scene3_image.jpg",
-                "audio_url": "https://example.com/scene3_audio.wav"
-            }
-        ],
-        "title": "My Final Video",
-        "webhook_url": "https://example.com/webhook",
-        "id": "request-123"
-     }' \
-     https://your-api-endpoint.com/v1/video/create-final-video
-```
-
-## 4. Response
-
-### Success Response
-
-The success response follows the general response format defined in the `app.py` file. Here's an example:
+## Resposta
 
 ```json
 {
-    "endpoint": "/v1/video/create-final-video",
-    "code": 200,
-    "id": "request-123",
-    "job_id": "a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6",
-    "response": "https://cloud-storage.example.com/final-video.mp4",
-    "message": "success",
-    "pid": 12345,
-    "queue_id": 6789,
-    "run_time": 15.678,
-    "queue_time": 3.456,
-    "total_time": 19.134,
-    "queue_length": 0,
-    "build_number": "1.0.0"
+  "job_id": "e5684e3f-b184-4c2e-81e3-3a61673766b8",
+  "status": "processing",
+  "message": "Video creation started. You will be notified via webhook when complete."
 }
 ```
 
-The `response` field contains the URL of the final video file uploaded to cloud storage.
+## Notificação de Webhook
 
-### Error Responses
+Quando o processamento for concluído, uma notificação será enviada para o `webhook_url` (se fornecido) com o seguinte formato:
 
-- **400 Bad Request**: Returned when the request body is missing or invalid.
-
-  ```json
-  {
-    "code": 400,
-    "message": "Invalid request payload"
+```json
+{
+  "job_id": "e5684e3f-b184-4c2e-81e3-3a61673766b8",
+  "status": "completed",
+  "data": {
+    "video_url": "https://bucket-name.s3.region.amazonaws.com/final_videos/e5684e3f-b184-4c2e-81e3-3a61673766b8_final.mp4",
+    "title": "Meu Vídeo com Efeitos",
+    "id": "video-123"
   }
-  ```
+}
+```
 
-- **401 Unauthorized**: Returned when the `x-api-key` header is missing or invalid.
+Em caso de erro:
 
-  ```json
-  {
-    "code": 401,
-    "message": "Unauthorized"
-  }
-  ```
-
-- **429 Too Many Requests**: Returned when the maximum queue length is reached.
-
-  ```json
-  {
-    "code": 429,
-    "id": "request-123",
-    "job_id": "a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6",
-    "message": "MAX_QUEUE_LENGTH (100) reached",
-    "pid": 12345,
-    "queue_id": 6789,
-    "queue_length": 100,
-    "build_number": "1.0.0"
-  }
-  ```
-
-- **500 Internal Server Error**: Returned when an unexpected error occurs during the final video creation process.
-
-  ```json
-  {
-    "code": 500,
-    "message": "An error occurred during final video creation"
-  }
-  ```
-
-## 5. Error Handling
-
-The endpoint handles the following common errors:
-
-- **Missing or invalid request body**: If the request body is missing or does not conform to the expected JSON schema, a 400 Bad Request error is returned.
-- **Missing or invalid API key**: If the `x-api-key` header is missing or invalid, a 401 Unauthorized error is returned.
-- **Queue length exceeded**: If the maximum queue length is reached (determined by the `MAX_QUEUE_LENGTH` environment variable), a 429 Too Many Requests error is returned.
-- **Unexpected errors during final video creation**: If an unexpected error occurs during the final video creation process, a 500 Internal Server Error is returned with the error message.
-
-## 6. Usage Notes
-
-- The scenes will be processed in the order they appear in the `scenes` array.
-- Each scene consists of a static image combined with an audio track.
-- The duration of each segment in the final video is determined by the duration of the corresponding audio file.
-- If the `webhook_url` parameter is provided, the response will be sent as a webhook to the specified URL.
-- The `id` parameter can be used to identify the request in the response.
-- The `title` parameter is optional and can be used to provide a title for the final video.
-
-## 7. Common Issues
-
-- **Invalid URLs**: Ensure that the image and audio URLs are valid and publicly accessible.
-- **Unsupported media formats**: The service expects images in common formats (jpg, png) and audio in formats like wav or mp3.
-- **Audio duration**: Very short audio files may result in segments that are too brief to be properly processed.
-- **Number of scenes**: Processing a large number of scenes may take a significant amount of time.
-
-## 8. Best Practices
-
-- **Pre-process media files**: Ensure that your image and audio files are properly formatted and optimized before using this endpoint.
-- **Staggered requests**: If you have many videos to create, consider staggering your requests to avoid hitting queue limits.
-- **Error handling**: Implement proper error handling in your client application to deal with potential errors returned by the endpoint.
-- **Webhooks**: For long-running processes, use the webhook functionality to receive notifications when the process is complete rather than polling the API.
-- **Cleanup**: Once you've downloaded and processed the final video, consider implementing cleanup procedures to free up storage space. 
+```json
+{
+  "job_id": "e5684e3f-b184-4c2e-81e3-3a61673766b8",
+  "status": "failed",
+  "error": "Mensagem de erro detalhada"
+}
+``` 
