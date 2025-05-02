@@ -1,59 +1,82 @@
 # routes/v1/video/create_final_video.py
 
-from flask import Blueprint, jsonify
-import logging
-
-from app_utils import validate_payload, queue_task_wrapper
+from flask import Blueprint, request, jsonify
+from services.v1.video.create_final_video import (
+    create_final_video,
+    VideoCreationError
+)
 from services.authentication import authenticate
-from services.v1.video.create_final_video import create_final_video
+from app_utils import validate_payload
 
-logger = logging.getLogger(__name__)
-bp = Blueprint("v1_video_create", __name__)
+bp = Blueprint('video', __name__, url_prefix='/v1/video')
 
-SCHEMA = {
+# JSON schema for incoming payload
+_payload_schema = {
     "type": "object",
     "properties": {
+        "content_id": {"type": "string"},
+        "title": {"type": "string"},
         "scenes": {
             "type": "array",
+            "minItems": 1,
             "items": {
                 "type": "object",
                 "properties": {
                     "image_url": {"type": "string", "format": "uri"},
-                    "audio_url": {"type": "string", "format": "uri"}
+                    "audio_url": {"type": "string", "format": "uri"},
+                    "order": {"type": "integer", "minimum": 1},
+                    "zoom_type": {
+                        "type": "string",
+                        "enum": ["None", "Zoom In", "Zoom Out"]
+                    },
+                    "zoom_speed": {"type": "number", "minimum": 0},
+                    "transition_type": {
+                        "type": "string",
+                        "enum": ["None", "Fade", "Cut"]
+                    },
+                    "transition_duration": {"type": "number", "minimum": 0}
                 },
-                "required": ["image_url", "audio_url"]
-            },
-            "minItems": 1
-        },
-        "title":           {"type": "string"},
-        "webhook_url":     {"type": "string", "format": "uri"},
-        "content_id":      {"type": "string"},
-        "advanced_options":{"type": "object"}
+                "required": ["image_url", "audio_url", "order"]
+            }
+        }
     },
-    "required": ["scenes"],
-    "additionalProperties": False
+    "required": ["content_id", "scenes"]
 }
 
-@bp.route("/v1/video/create-final-video", methods=["POST"])
+@bp.route('/create-final-video', methods=['POST'])
 @authenticate
-@validate_payload(SCHEMA)
-@queue_task_wrapper(bypass_queue=False)
-def create_final_route(job_id, data):
-    logger.info(f"Job {job_id}: enqueued")
+@validate_payload(_payload_schema)
+def create_final_video_endpoint():
+    """
+    Recebe um JSON com content_id, title (opcional) e lista de scenes.
+    Cada scene inclui image_url, audio_url, order e opções de zoom/transição.
+    Retorna um JSON com status e o path do vídeo final.
+    """
+    payload = request.get_json()
+    content_id = payload['content_id']
+    title = payload.get('title')
+    scenes = payload['scenes']
+
     try:
-        res = create_final_video(
-            job_id=job_id,
-            scenes=data["scenes"],
-            title=data.get("title"),
-            webhook_url=data.get("webhook_url"),
-            content_id=data.get("content_id"),
-            advanced=data.get("advanced_options", {})
+        final_path = create_final_video(
+            content_id=content_id,
+            title=title,
+            scenes=scenes
         )
-        if res.get("status") == "failed":
-            logger.error(f"Job {job_id}: {res['error']}")
-            return jsonify({"error": res["error"]}), 500
-        return jsonify({"job_id": job_id}), 202
+        return jsonify({
+            "status": "completed",
+            "video_path": final_path
+        }), 200
+
+    except VideoCreationError as e:
+        return jsonify({
+            "status": "failed",
+            "error": str(e)
+        }), 500
 
     except Exception as e:
-        logger.exception(f"Job {job_id}: unexpected")
-        return jsonify({"error": str(e)}), 500
+        # unexpected
+        return jsonify({
+            "status": "failed",
+            "error": "Unexpected error during video creation"
+        }), 500

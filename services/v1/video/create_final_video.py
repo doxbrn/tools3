@@ -2,175 +2,190 @@
 
 import os
 import shutil
-import logging
 import subprocess
 import tempfile
-from typing import List, Dict, Optional, Any
 import requests
+import logging
 
-from config import LOCAL_STORAGE_PATH, DEFAULT_BACKGROUND_MUSIC_URL
-from services.file_management import download_file
-from services.s3_toolkit import upload_to_s3
+from app_utils import LOCAL_STORAGE_PATH
 
 logger = logging.getLogger(__name__)
-SEGMENT_PREFIX = "segment_"
-DEFAULT_DURATION = 10.0
+
+class VideoCreationError(Exception):
+    """Erro genérico na criação do vídeo final."""
+    pass
+
+def create_final_video(content_id: str,
+                       title: str,
+                       scenes: list[dict]) -> str:
+    """
+    Monta e concatena cada cena (imagem+áudio) num vídeo final.
+    Retorna o path local do vídeo gerado.
+    """
+    # 1. Cria pasta de trabalho limpa
+    work_dir = os.path.join(LOCAL_STORAGE_PATH, f"video_{content_id}")
+    if os.path.exists(work_dir):
+        shutil.rmtree(work_dir)
+    os.makedirs(work_dir, exist_ok=True)
+
+    segment_paths = []
+    # 2. Processa cada cena (em ordem)
+    for scene in sorted(scenes, key=lambda s: s['order']):
+        try:
+            seg = _create_scene_segment(scene, work_dir)
+            segment_paths.append(seg)
+        except Exception as exc:
+            raise VideoCreationError(f"Scene {scene['order']} error: {exc}")
+
+    # 3. Concatena segmentos
+    final_video = os.path.join(work_dir, f"{content_id}_final.mp4")
+    try:
+        _concat_segments(segment_paths, final_video)
+    except Exception as exc:
+        raise VideoCreationError(f"Failed to concatenate: {exc}")
+
+    # 4. TODO: overlays, captions, background music
+    #     e.g. _apply_overlays(final_video), _add_captions(final_video), etc.
+
+    logger.info(f"Video criado: {final_video}")
+    return final_video
 
 
-def _probe_duration(path: str) -> float:
+def _create_scene_segment(scene: dict, work_dir: str) -> str:
+    """
+    Para uma cena, faz:
+    - Download de image_url e audio_url
+    - Extrai duração exata do áudio
+    - Gera um MP4 com zoom (se houver) e aplica o áudio
+    Retorna o path do segmento pronto.
+    """
+    order = scene['order']
+    img_url = scene['image_url']
+    aud_url = scene['audio_url']
+    zoom_type = scene.get('zoom_type', 'None')
+    zoom_speed = scene.get('zoom_speed', 1.0)
+
+    # paths locais
+    img_path = os.path.join(work_dir, f"scene_{order}.jpg")
+    aud_path = os.path.join(work_dir, f"scene_{order}.wav")
+    raw_vid = os.path.join(work_dir, f"scene_{order}_raw.mp4")
+    final_seg = os.path.join(work_dir, f"scene_{order}.mp4")
+
+    # -- download image
+    _download_stream(img_url, img_path)
+    # -- download audio
+    _download_stream(aud_url, aud_path)
+
+    # -- obtém duração real do áudio
+    duration = _get_audio_duration(aud_path)
+    fps = 30
+    frames = int(duration * fps)
+
+    # -- gera vídeo sem áudio
+    if zoom_type != 'None':
+        # zoom in / out
+        max_zoom = 1.5
+        delta = (max_zoom - 1.0) / max(1, frames) * zoom_speed
+        if zoom_type == 'Zoom In':
+            expr = f"if(eq(on,1),1, min(zoom+{delta:.6f},{max_zoom}))"
+        else:  # Zoom Out
+            expr = f"if(eq(on,1),{max_zoom}, max(zoom-{delta:.6f},1))"
+
+        cmd = [
+            'ffmpeg', '-y',
+            '-loop', '1', '-i', img_path,
+            '-filter_complex',
+            f"zoompan=z='{expr}':d={frames}:s=1920x1080",
+            '-c:v', 'libx264',
+            '-r', str(fps),
+            '-t', str(duration),
+            '-pix_fmt', 'yuv420p',
+            raw_vid
+        ]
+    else:
+        # imagem fixa
+        cmd = [
+            'ffmpeg', '-y',
+            '-loop', '1', '-i', img_path,
+            '-c:v', 'libx264',
+            '-t', str(duration),
+            '-r', str(fps),
+            '-pix_fmt', 'yuv420p',
+            raw_vid
+        ]
+
+    _run_ffmpeg(cmd, f"Failed to render video for scene {order}")
+
+    # -- insere áudio
+    mux_cmd = [
+        'ffmpeg', '-y',
+        '-i', raw_vid, '-i', aud_path,
+        '-c:v', 'copy',
+        '-c:a', 'copy',
+        '-shortest',
+        final_seg
+    ]
+    _run_ffmpeg(mux_cmd, f"Failed to mux audio for scene {order}")
+
+    return final_seg
+
+
+def _concat_segments(segment_paths: list[str], output_path: str):
+    """
+    Concatena todos os MP4s (com áudio) numa sequência única.
+    """
+    list_file = os.path.join(os.path.dirname(output_path), 'concat_list.txt')
+    with open(list_file, 'w') as f:
+        for p in segment_paths:
+            f.write(f"file '{p}'\n")
+
     cmd = [
-        "ffprobe", "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
+        'ffmpeg', '-y',
+        '-f', 'concat', '-safe', '0',
+        '-i', list_file,
+        '-c', 'copy',
+        output_path
+    ]
+    _run_ffmpeg(cmd, "Failed to concatenate final video")
+
+
+def _get_audio_duration(path: str) -> float:
+    """
+    Chama ffprobe para extrair a duração exata (em segundos) do arquivo de áudio.
+    """
+    cmd = [
+        'ffprobe', '-v', 'error',
+        '-show_entries', 'format=duration',
+        '-of', 'default=noprint_wrappers=1:nokey=1',
         path
     ]
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if proc.returncode != 0:
+        raise VideoCreationError(f"ffprobe failed on {path}: {proc.stderr.strip()}")
     try:
-        out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
-        return float(out)
-    except Exception:
-        logger.warning(f"Could not probe duration of {path}, using {DEFAULT_DURATION}s")
-        return DEFAULT_DURATION
+        return float(proc.stdout.strip())
+    except ValueError:
+        raise VideoCreationError(f"Invalid duration for {path}")
 
 
-def _ffmpeg(cmd: List[str], errmsg: str):
-    logger.debug("FFmpeg ▶ " + " ".join(cmd))
-    try:
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    except subprocess.CalledProcessError as e:
-        err = e.stderr.decode(errors="ignore").strip()
-        logger.error(f"{errmsg}: {err}")
-        raise
+def _download_stream(url: str, dest: str):
+    """
+    Baixa de forma streaming da URL para o arquivo `dest`.
+    """
+    resp = requests.get(url, stream=True, timeout=30)
+    resp.raise_for_status()
+    with open(dest, 'wb') as f:
+        for chunk in resp.iter_content(8192):
+            if chunk:
+                f.write(chunk)
 
 
-def _prepare_scene(job_dir: str, idx: int, scene: Dict[str, str]):
-    seg_dir = os.path.join(job_dir, f"{SEGMENT_PREFIX}{idx}")
-    os.makedirs(seg_dir, exist_ok=True)
-    img = os.path.join(seg_dir, f"image_{idx}{os.path.splitext(scene['image_url'])[1]}")
-    aud = os.path.join(seg_dir, f"audio_{idx}.mp3")
-    download_file(scene["image_url"], img)
-    download_file(scene["audio_url"], aud)
-    return img, aud
-
-
-def _render_segment(
-    img: str, aud: str, out: str,
-    zoom: Optional[Dict[str, Any]]
-):
-    dur = _probe_duration(aud)
-    if zoom and zoom.get("type") != "None":
-        spd = zoom.get("speed", 1) / 10.0
-        filt = f"zoompan=z='min(zoom+{spd},1.5)':d={int(dur*25)}:s=1920x1080"
-        tmp = out.replace(".mp4", "_z.mp4")
-        _ffmpeg(
-            ["ffmpeg","-y","-loop","1","-i",img,"-filter_complex",filt,
-             "-t",str(dur),"-c:v","libx264","-pix_fmt","yuv420p", tmp],
-            f"zoom failed for {img}"
-        )
-        _ffmpeg(
-            ["ffmpeg","-y","-i",tmp,"-i",aud,
-             "-c:v","copy","-c:a","aac","-shortest", out],
-            f"merge zoom+audio failed for {img}"
-        )
-        os.remove(tmp)
-    else:
-        _ffmpeg(
-            ["ffmpeg","-y","-loop","1","-i",img,"-i",aud,
-             "-c:v","libx264","-tune","stillimage","-c:a","aac","-b:a","192k",
-             "-pix_fmt","yuv420p","-shortest","-t",str(dur), out],
-            f"static segment fail for {img}"
-        )
-
-
-def _concat(segments: List[str], out: str):
-    lst = tempfile.NamedTemporaryFile("w", delete=False, suffix=".txt")
-    for p in segments:
-        lst.write(f"file '{os.path.abspath(p)}'\n")
-    lst.close()
-    try:
-        _ffmpeg(
-            ["ffmpeg","-y","-f","concat","-safe","0","-i",lst.name,"-c","copy",out],
-            "concat failed"
-        )
-    finally:
-        os.remove(lst.name)
-
-
-def _add_bgm(video: str, bgm_url: str, out: str):
-    tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
-    download_file(bgm_url, tmp.name)
-    dur = _probe_duration(video)
-    _ffmpeg(
-        ["ffmpeg","-y","-i",video,"-stream_loop","-1","-i",tmp.name,
-         "-filter_complex",f"[1:a]volume=0.2,aloop=loop=-1:size=2e+09,atrim=end={dur}[bgm];"
-                           "[0:a][bgm]amix=inputs=2:duration=first[a]",
-         "-map","0:v","-map","[a]","-c:v","copy","-c:a","aac","-shortest",out],
-        "bgm merge failed"
-    )
-    os.remove(tmp.name)
-
-
-def _notify(webhook: Optional[str], job: str, status: str, data: dict=None, error: str=None):
-    if not webhook:
-        return
-    payload = {"job_id": job, "status": status}
-    if data:  payload["data"]  = data
-    if error: payload["error"] = error
-    try:
-        r = requests.post(webhook, json=payload, timeout=5)
-        if r.status_code // 100 != 2:
-            logger.warning(f"Webhook {status} → {r.status_code}")
-    except Exception as e:
-        logger.error(f"Webhook error: {e}")
-
-
-def create_final_video(
-    job_id: str,
-    scenes: List[Dict[str, str]],
-    title: Optional[str],
-    webhook_url: Optional[str],
-    content_id: Optional[str],
-    advanced: Optional[Dict[str, Any]],
-) -> Dict[str, Any]:
-    job_dir = os.path.join(LOCAL_STORAGE_PATH, f"final_{job_id}")
-    os.makedirs(job_dir, exist_ok=True)
-    segments: List[str] = []
-
-    zoom_cfg = (advanced or {}).get("zoom", {})
-    bgm_url  = (advanced or {}).get("background_music", {}).get("url") \
-               or DEFAULT_BACKGROUND_MUSIC_URL
-
-    try:
-        logger.info(f"Job {job_id}: rendering {len(scenes)} scenes")
-        for i, sc in enumerate(scenes):
-            img, aud = _prepare_scene(job_dir, i, sc)
-            out = os.path.join(job_dir, f"{SEGMENT_PREFIX}{i}.mp4")
-            _render_segment(img, aud, out, zoom_cfg)
-            segments.append(out)
-
-        temp = os.path.join(job_dir, f"{job_id}_temp.mp4")
-        _concat(segments, temp)
-
-        if bgm_url:
-            bgm_out = temp.replace("_temp", "_bgm")
-            _add_bgm(temp, bgm_url, bgm_out)
-            os.replace(bgm_out, temp)
-
-        s3_key = f"videos/{job_id}.mp4"
-        s3_url = upload_to_s3(temp, s3_key)
-
-        result = {
-            "status":    "completed",
-            "video_url": s3_url,
-            "title":     title,
-            "id":        content_id
-        }
-        _notify(webhook_url, job_id, "completed", data=result)
-        return result
-
-    except Exception as e:
-        logger.exception(f"Job {job_id} failed")
-        _notify(webhook_url, job_id, "failed", error=str(e))
-        return {"status":"failed", "error": str(e)}
-
-    finally:
-        shutil.rmtree(job_dir, ignore_errors=True)
+def _run_ffmpeg(cmd: list[str], err_msg: str):
+    """
+    Executa um comando ffmpeg e verifica saída.
+    """
+    logger.debug("Running ffmpeg: %s", " ".join(cmd))
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if proc.returncode != 0:
+        logger.error("ffmpeg error: %s", proc.stderr)
+        raise VideoCreationError(f"{err_msg}: {proc.stderr.splitlines()[-1]}")
