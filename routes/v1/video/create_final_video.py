@@ -14,7 +14,7 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint
 from app_utils import validate_payload, queue_task_wrapper
 import logging
 from services.v1.video.create_final_video import create_final_video
@@ -25,81 +25,30 @@ v1_video_create_final_video_bp = Blueprint(
 )
 logger = logging.getLogger(__name__)
 
-# JSON Schema alinhado aos parâmetros esperados pelo create_final_video
+# Schema de validação para payload compatível com create_final_video
 CREATE_FINAL_VIDEO_SCHEMA = {
     "type": "object",
     "properties": {
-        "scenes": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "image_url": {"type": "string", "format": "uri"},
-                    "audio_url": {"type": "string", "format": "uri"}
-                },
-                "required": ["image_url", "audio_url"]
-            },
-            "minItems": 1
-        },
-        "title":        {"type": "string"},
-        "webhook_url":  {"type": "string", "format": "uri"},
-        "content_id":   {"type": "string"},
-        "advanced_options": {
-            "type": "object",
-            "properties": {
-                "overlay": {
-                    "type": "object",
-                    "properties": {
-                        "url":      {"type": ["string", "null"], "format": "uri"},
-                        "position": {"type": ["string", "null"]},
-                        "opacity":  {"type": ["number", "null"]}
-                    }
-                },
-                "zoom": {
-                    "type": "object",
-                    "properties": {
-                        "type":  {"type": ["string", "null"]},
-                        "speed": {"type": ["number", "null"]}
-                    }
-                },
-                "background_music": {
-                    "type": "object",
-                    "properties": {
-                        "url":    {"type": ["string", "null"], "format": "uri"},
-                        "volume": {"type": ["number", "null"]}
-                    }
-                },
-                "captions": {
-                    "type": "object",
-                    "properties": {
-                        "enabled": {"type": ["boolean", "null"]},
-                        "style":   {"type": ["string", "null"]}
-                    }
-                },
-                "transitions": {
-                    "type": "object",
-                    "properties": {
-                        "type":     {"type": ["string", "null"]},
-                        "duration": {"type": ["number", "null"]}
-                    }
-                }
-            },
-            "additionalProperties": False
-        }
+        "scenes": {"type": "array", "minItems": 1},
+        "title": {"type": "string"},
+        "webhook_url": {"type": "string", "format": "uri"},
+        "content_id": {"type": "string"},
+        "advanced_options": {"type": "object"}
     },
     "required": ["scenes"],
     "additionalProperties": False
 }
 
-@v1_video_create_final_video_bp.route('/v1/video/create-final-video', methods=['POST'])
+@v1_video_create_final_video_bp.route(
+    '/v1/video/create-final-video', methods=['POST']
+)
 @authenticate
 @validate_payload(CREATE_FINAL_VIDEO_SCHEMA)
 @queue_task_wrapper(bypass_queue=False)
 def create_final_video_route(job_id: str, data: dict):
     """
-    Rota para criação de vídeo final. Valida payload, autentica,
-    enfileira job e chama o serviço de criação de vídeo.
-    Retorna JSON com URL do vídeo ou mensagem de erro.
+    Rota que enfileira a tarefa de criação de vídeo.
+    Retorna tuple: (payload, endpoint, status_code) para o queue wrapper.
     """
     scenes = data['scenes']
     title = data.get('title')
@@ -108,7 +57,7 @@ def create_final_video_route(job_id: str, data: dict):
     advanced_options = data.get('advanced_options')
 
     logger.info(
-        f"Job {job_id}: Received create-final-video request for {len(scenes)} scenes, content_id: {content_id}"
+        f"Job {job_id}: Received create-final-video for {len(scenes)} scenes, content_id={content_id}"
     )
 
     try:
@@ -124,12 +73,12 @@ def create_final_video_route(job_id: str, data: dict):
         if result.get('status') == 'failed':
             error_msg = result.get('error', 'Unknown error')
             logger.error(f"Job {job_id}: Video creation failed: {error_msg}")
-            return jsonify({'error': error_msg}), 500
+            return ({'error': error_msg}, '/v1/video/create-final-video', 500)
 
         video_url = result.get('video_url')
         logger.info(f"Job {job_id}: Video created successfully: {video_url}")
-        return jsonify({'video_url': video_url}), 200
+        return ({'video_url': video_url}, '/v1/video/create-final-video', 200)
 
     except Exception as e:
-        logger.exception(f"Job {job_id}: Unexpected error: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.exception(f"Job {job_id}: Unexpected error: {str(e)}")
+        return ({'error': str(e)}, '/v1/video/create-final-video', 500)
