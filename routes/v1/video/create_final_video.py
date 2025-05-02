@@ -70,7 +70,7 @@ def create_final_video(job_id, data):
             scenes, job_id, title, webhook_url
         )
         logger.info(
-            f"Job {job_id}: Final video creation process completed successfully"
+            f"Job {job_id}: Final video creation completed successfully"
         )
 
         cloud_url = upload_file(output_file)
@@ -81,6 +81,7 @@ def create_final_video(job_id, data):
         return cloud_url, "/v1/video/create-final-video", 200
 
     except Exception as e:
-        error_message = f"Job {job_id}: Error during final video creation - {str(e)}"
+        error_message = (f"Job {job_id}: Error during final video creation - "
+                         f"{str(e)}")
         logger.error(error_message)
         return str(e), "/v1/video/create-final-video", 500 

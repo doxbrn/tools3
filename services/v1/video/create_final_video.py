@@ -26,10 +26,12 @@ from services.s3_toolkit import upload_file
 logger = logging.getLogger(__name__)
 
 
-def _send_webhook_notification(webhook_url, job_id, status, data=None, error_message=None):
+def _send_webhook_notification(webhook_url, job_id, status, data=None,
+                               error_message=None):
     """Helper function to send webhook notification."""
     if not webhook_url:
-        logger.info(f"Job {job_id}: No webhook URL provided, skipping notification.")
+        logger.info(
+            f"Job {job_id}: No webhook URL provided, skipping notification.")
         return
 
     payload = {
@@ -44,22 +46,27 @@ def _send_webhook_notification(webhook_url, job_id, status, data=None, error_mes
     try:
         response = requests.post(webhook_url, json=payload, timeout=10)
         response.raise_for_status()
-        logger.info(f"Job {job_id}: Successfully sent {status} notification to {webhook_url}")
+        logger.info(
+            f"Job {job_id}: Successfully sent {status} "
+            f"notification to {webhook_url}"
+        )
     except requests.exceptions.RequestException as e:
-        logger.error(f"Job {job_id}: Failed to send notification to {webhook_url}: {e}")
+        logger.error(
+            f"Job {job_id}: Failed to send notification to {webhook_url}: {e}"
+        )
 
 
 def process_create_final_video(scenes, job_id, title=None, webhook_url=None):
     """
-    Create a final video from a list of scenes, each containing image 
+    Create a final video from a list of scenes, each containing image
     and audio. Uploads the final video to S3 and sends a webhook notification.
-    
+
     Args:
         scenes (list): List of scenes, each with image_url and audio_url
         job_id (str): Unique job identifier
         title (str, optional): Title of the video. Included in webhook.
         webhook_url (str, optional): Webhook URL for notifications
-        
+
     Returns:
         str: S3 URL of the final video file upon success.
 
@@ -68,52 +75,47 @@ def process_create_final_video(scenes, job_id, title=None, webhook_url=None):
     """
     temp_dir = os.path.join(LOCAL_STORAGE_PATH, f"final_video_{job_id}")
     os.makedirs(temp_dir, exist_ok=True)
-    
+
     segment_files = []
-    final_video_local_path = os.path.join(LOCAL_STORAGE_PATH, f"{job_id}_final.mp4")
+    final_video_local_path = os.path.join(
+        LOCAL_STORAGE_PATH, f"{job_id}_final.mp4"
+    )
     final_video_s3_object_name = f"final_videos/{job_id}_final.mp4"
     concat_file_path = os.path.join(temp_dir, "concat_list.txt")
     s3_url = None
-    
+
     try:
         logger.info(
             f"Job {job_id}: Starting final video creation with "
             f"{len(scenes)} scenes. Title: {title}"
         )
-        
-        # Process each scene by creating a video segment from image and audio
+
         for i, scene in enumerate(scenes):
             logger.info(f"Job {job_id}: Processing scene {i+1}/{len(scenes)}")
-            
-            # Download image and audio files
+
             image_url = scene.get('image_url')
             audio_url = scene.get('audio_url')
-            
+
             if not image_url or not audio_url:
                 logger.warning(
                     f"Job {job_id}: Scene {i+1} missing image/audio url, "
                     f"skipping"
                 )
                 continue
-                
-            image_ext = os.path.splitext(image_url)[1] or '.jpg' # Default ext
-            audio_ext = os.path.splitext(audio_url)[1] or '.wav' # Default ext
+
+            # Default ext
+            image_ext = os.path.splitext(image_url)[1] or '.jpg'
+            # Default ext
+            audio_ext = os.path.splitext(audio_url)[1] or '.wav'
             image_filename = f"image_{i}{image_ext}"
             audio_filename = f"audio_{i}{audio_ext}"
             local_image_path = os.path.join(temp_dir, image_filename)
             local_audio_path = os.path.join(temp_dir, audio_filename)
-            
-            image_path = download_file(
-                image_url, local_image_path
-            )
-            audio_path = download_file(
-                audio_url, local_audio_path
-            )
-            
-            # Create segment video (image + audio)
+
+            image_path = download_file(image_url, local_image_path)
+            audio_path = download_file(audio_url, local_audio_path)
+
             segment_path = os.path.join(temp_dir, f"segment_{i}.mp4")
-            
-            # Use ffmpeg to create a video segment with the image and audio
             cmd = [
                 'ffmpeg', '-y',
                 '-loop', '1',
@@ -127,23 +129,19 @@ def process_create_final_video(scenes, job_id, title=None, webhook_url=None):
                 '-shortest',
                 segment_path
             ]
-            
             subprocess.run(cmd, check=True, capture_output=True)
             segment_files.append(segment_path)
-            
-            # Clean up the downloaded files
+
             os.remove(image_path)
             os.remove(audio_path)
-        
+
         if not segment_files:
             raise ValueError("No valid scenes processed to create a video.")
-        
-        # Create concat file for ffmpeg
+
         with open(concat_file_path, 'w') as f:
             for segment in segment_files:
-                f.write(f"file '{os.path.abspath(segment)}'\n")
-        
-        # Concatenate all segments into the final video
+                f.write(f"file '{os.path.abspath(segment)}'\\n")
+
         concat_cmd = [
             'ffmpeg', '-y',
             '-f', 'concat',
@@ -152,48 +150,57 @@ def process_create_final_video(scenes, job_id, title=None, webhook_url=None):
             '-c', 'copy',
             final_video_local_path
         ]
-        
         subprocess.run(concat_cmd, check=True, capture_output=True)
         logger.info(
-            f"Job {job_id}: Local final video created: {final_video_local_path}"
+            f"Job {job_id}: Local final video created: "
+            f"{final_video_local_path}"
         )
-        
-        # --- Upload to S3 ---
-        logger.info(f"Job {job_id}: Uploading {final_video_local_path} to S3 bucket {S3_BUCKET_NAME} as {final_video_s3_object_name}")
+
+        logger.info(f"Job {job_id}: Uploading {final_video_local_path} to S3 "
+                    f"bucket {S3_BUCKET_NAME} as "
+                    f"{final_video_s3_object_name}")
         s3_url = upload_file(
             local_path=final_video_local_path,
             bucket_name=S3_BUCKET_NAME,
             object_name=final_video_s3_object_name
         )
         if not s3_url:
-            raise Exception(f"Failed to upload {final_video_local_path} to S3.")
-        logger.info(f"Job {job_id}: Successfully uploaded video to S3: {s3_url}")
-        
-        # --- Send Success Webhook ---
+            raise Exception(
+                f"Failed to upload {final_video_local_path} to S3."
+            )
+        logger.info(
+            f"Job {job_id}: Successfully uploaded video to S3: {s3_url}")
+
         webhook_data = {"video_url": s3_url, "title": title}
-        _send_webhook_notification(webhook_url, job_id, "success", data=webhook_data)
-        
+        _send_webhook_notification(webhook_url, job_id, "success",
+                                   data=webhook_data)
+
         return s3_url
-        
+
     except subprocess.CalledProcessError as e:
-        # Log ffmpeg errors specifically
         error_output = e.stderr.decode() if e.stderr else "No stderr output"
-        logger.error(f"Job {job_id}: FFmpeg command failed: {e.cmd}\nError: {error_output}")
+        logger.error(
+            f"Job {job_id}: FFmpeg command failed: {e.cmd}\\nError: "
+            f"{error_output}")
         error_message = f"FFmpeg error: {error_output}"
-        _send_webhook_notification(webhook_url, job_id, "failure", error_message=error_message, data={"title": title})
+        _send_webhook_notification(webhook_url, job_id, "failure",
+                                   error_message=error_message,
+                                   data={"title": title})
         raise Exception(error_message) from e
     except Exception as e:
         logger.error(f"Job {job_id}: Error creating final video: {str(e)}")
-        # --- Send Failure Webhook ---
-        _send_webhook_notification(webhook_url, job_id, "failure", error_message=str(e), data={"title": title})
+        _send_webhook_notification(webhook_url, job_id, "failure",
+                                   error_message=str(e), data={"title": title})
         raise
-    
+
     finally:
-        # Clean up local files
         try:
             if os.path.exists(final_video_local_path):
                 os.remove(final_video_local_path)
-                logger.debug(f"Job {job_id}: Removed local final video {final_video_local_path}")
+                logger.debug(
+                    f"Job {job_id}: Removed local final video "
+                    f"{final_video_local_path}"
+                )
             if os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir)
                 logger.info(
@@ -204,7 +211,8 @@ def process_create_final_video(scenes, job_id, title=None, webhook_url=None):
                 f"Job {job_id}: Error cleaning up local files: {str(e)}"
             )
 
-# Example usage (for testing purposes, not called by the route directly usually)
+# Example usage (for testing purposes,
+# not called by the route directly usually)
 # if __name__ == '__main__':
 #     logging.basicConfig(level=logging.INFO)
 #     test_scenes = [
@@ -212,9 +220,12 @@ def process_create_final_video(scenes, job_id, title=None, webhook_url=None):
 #         {'image_url': 'URL_TO_IMAGE_2', 'audio_url': 'URL_TO_AUDIO_2'}
 #     ]
 #     test_job_id = 'test-123'
-#     test_webhook = 'YOUR_TEST_WEBHOOK_URL' # e.g., a webhook.site URL
+#     test_webhook = 'YOUR_TEST_WEBHOOK_URL'
 #     try:
-#         final_url = process_create_final_video(test_scenes, test_job_id, title="Test Video", webhook_url=test_webhook)
+#         final_url = process_create_final_video(
+#               test_scenes, test_job_id, title="Test Video",
+#               webhook_url=test_webhook
+#         )
 #         print(f"Process completed. Final URL: {final_url}")
 #     except Exception as e:
-#         print(f"Process failed: {e}") 
+#         print(f"Process failed: {e}")
