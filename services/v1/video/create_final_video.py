@@ -3,11 +3,10 @@
 import os
 import shutil
 import subprocess
-import tempfile
 import requests
 import logging
 
-from app_utils import LOCAL_STORAGE_PATH
+from config import LOCAL_STORAGE_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +150,8 @@ def _concat_segments(segment_paths: list[str], output_path: str):
 
 def _get_audio_duration(path: str) -> float:
     """
-    Chama ffprobe para extrair a duração exata (em segundos) do arquivo de áudio.
+    Chama ffprobe para extrair a duração exata (em segundos) do
+    arquivo de áudio.
     """
     cmd = [
         'ffprobe', '-v', 'error',
@@ -159,9 +159,12 @@ def _get_audio_duration(path: str) -> float:
         '-of', 'default=noprint_wrappers=1:nokey=1',
         path
     ]
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, text=True)
     if proc.returncode != 0:
-        raise VideoCreationError(f"ffprobe failed on {path}: {proc.stderr.strip()}")
+        raise VideoCreationError(
+            f"ffprobe failed on {path}: {proc.stderr.strip()}"
+        )
     try:
         return float(proc.stdout.strip())
     except ValueError:
@@ -185,7 +188,10 @@ def _run_ffmpeg(cmd: list[str], err_msg: str):
     Executa um comando ffmpeg e verifica saída.
     """
     logger.debug("Running ffmpeg: %s", " ".join(cmd))
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, text=True)
     if proc.returncode != 0:
+        stderr_lines = proc.stderr.splitlines()
+        last_line = stderr_lines[-1] if stderr_lines else "(no stderr output)"
         logger.error("ffmpeg error: %s", proc.stderr)
-        raise VideoCreationError(f"{err_msg}: {proc.stderr.splitlines()[-1]}")
+        raise VideoCreationError(f"{err_msg}: {last_line}")

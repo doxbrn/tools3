@@ -1,5 +1,6 @@
 # routes/v1/video/create_final_video.py
 
+import logging
 from flask import Blueprint, request, jsonify
 from services.v1.video.create_final_video import (
     create_final_video,
@@ -9,6 +10,7 @@ from services.authentication import authenticate
 from app_utils import validate_payload
 
 bp = Blueprint('video', __name__, url_prefix='/v1/video')
+logger = logging.getLogger(__name__)
 
 # JSON schema for incoming payload
 _payload_schema = {
@@ -76,6 +78,10 @@ def create_final_video_endpoint():
 
     except Exception as e:
         # unexpected
+        logger.error(
+            f"Unexpected error during video creation for {content_id}: {e}",
+            exc_info=True
+        )
         return jsonify({
             "status": "failed",
             "error": "Unexpected error during video creation"
