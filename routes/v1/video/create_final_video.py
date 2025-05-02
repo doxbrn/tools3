@@ -1,6 +1,6 @@
+# routes/v1/video/create_final_video.py
 from flask import Blueprint
 import logging
-
 from app_utils import validate_payload, queue_task_wrapper
 from services.authentication import authenticate
 from services.v1.video.create_final_video import create_final_video
@@ -31,11 +31,6 @@ CREATE_FINAL_VIDEO_SCHEMA = {
 @validate_payload(CREATE_FINAL_VIDEO_SCHEMA)
 @queue_task_wrapper(bypass_queue=False)
 def create_final_video_route(job_id: str, data: dict):
-    """
-    - job_id: gerado pelo queue_task_wrapper
-    - data: payload validado
-    Retorna (payload_dict, endpoint, status_code).
-    """
     scenes           = data["scenes"]
     title            = data.get("title")
     webhook_url      = data.get("webhook_url")
@@ -63,7 +58,6 @@ def create_final_video_route(job_id: str, data: dict):
 
         url = result["video_url"]
         logger.info(f"Job {job_id}: video ready → {url}")
-        # 202 Accepted porque a task continuará no background
         return ({"video_url": url}, "/v1/video/create-final-video", 202)
 
     except Exception as e:

@@ -1,74 +1,118 @@
-# Airtable Base: Content Flow
+# Content Flow Airtable Base
 
-**Base ID:** `appVgvW0XEsJLXZ0P`
+The Content Flow Airtable Base is the central database that powers the content generation and management workflow. This document provides an overview of the base structure and how to interact with it.
 
-## Overview
+## Content Flow Process
 
-This Airtable base is designed to manage the workflow for creating video content, from defining channel personalities and themes to generating individual scenes and assembling the final video. It serves as the central hub for coordinating automated and manual steps in the content creation pipeline.
+1. **Content Generation:** The AI generates content based on channel specifications (prompts, themes) stored in the `Canais` table. The generated content is stored in the `Conteudos` table.
 
-## Tables
+2. **Scene Division:** Content is divided into scenes with the results stored in the `Cenas` table. Each scene maintains a reference to its parent content item and has an order field for sequence.
 
-### 1. Canais
+3. **Asset Generation:** Automated processes generate image and audio assets for each scene, storing their S3 URLs (e.g., `url_s3_image`, `url_s3_audio`) back into the corresponding `Cenas` records.
 
-- **Table ID:** `tbl81UhgC1U9wJe8Q`
-- **Purpose:** Defines the different channels or content series. Each record represents a unique channel with its specific identity, tone, style, and content generation guidelines.
-- **Key Fields (Inferred from sample record):**
-    - `ID_Canal`: Unique identifier for the channel (e.g., `CH-rec0SBDz3rsZbCt9Z`).
-    - `Nome_Canal`: Name of the channel (e.g., "A Tribo da Chama Sagrada").
-    - `Status`: Current status of the channel (e.g., "Em Desenvolvimento").
-    - `Personalidade`: Description of the channel's persona and archetype.
-    - `Tom_Voz`: Guidelines for the narrative tone and voice.
-    - `Estilo_Escrita`: Rules for writing style, vocabulary, and structure.
-    - `Tema_Central`: Core themes the channel explores.
-    - `Instrucoes_Geracao_Tema`: Prompts/guidelines for generating specific content themes.
-    - `Instrucoes_Geracao_Conteudo`: Detailed instructions for structuring and generating the full content script, including frameworks and triggers.
-    - `Restricoes_Conteudo`: Content restrictions and things to avoid.
-    - `Diretrizes_Estrutura_Texto`: Specific rules for text structure.
-    - `Conteudos`: Linked records from the `Conteudos` table.
-    - `Image Action`, `Audio Action`, `Video Action`: Likely linked records defining automated actions/workflows (e.g., for generating images, audio, video).
-    - `TTS_Guidelines`: Specific instructions for formatting text for Text-to-Speech generation.
-    - `Channel Profile Summary`: A consolidated summary of the channel's profile fields.
-    - `Min Words Scene`: Minimum word count per scene.
-    - `Tamanho Texto`: Target word count range for the full script.
+4. **Video Creation:** Workflows read data from `Conteudos` and `Cenas` (specifically the asset URLs and order) to trigger the video creation API endpoint.
 
-### 2. Conteudos
+5. **Webhook Notification:** The video creation service uses the `webhook_url` from the `Conteudos` record (or a default) to send a notification upon completion of the video rendering and S3 upload.
 
-- **Table ID:** `tblG4KH7skP2FYfm3`
-- **Purpose:** Represents individual pieces of content (e.g., a specific video script) generated for a channel.
-- **Key Fields (Inferred from sample record):**
-    - `ID`: Unique identifier for the content piece (e.g., `C-142`).
-    - `Canal`: Linked record from the `Canais` table, indicating the channel this content belongs to.
-    - `Tema Name`: The specific title or theme of this content piece (e.g., "A Bússola da Alma...").
-    - `Roteiro_Completo`: The full script generated for the content.
-    - `Texto English`: English translation of the script.
-    - `Status_Geral`: Overall status of the content piece (e.g., "Assets_Pendente").
-    - `Cenas`: Linked records from the `Cenas` table, representing the individual scenes comprising this content.
-    - `Words`: Total word count of the `Roteiro_Completo`.
-    - `Text Length`: Character count of the `Roteiro_Completo`.
-    - `Tema Completo`: JSON object containing detailed theme information (description, justification, hooks, structure, etc.).
-    - `webhook_url` (Optional): A specific webhook URL to notify upon completion of processes related to this content (e.g., video rendering). If not provided, a default webhook might be used by the system.
+## Base Structure
 
-### 3. Cenas
+The Content Flow base consists of several interconnected tables that manage different aspects of the content workflow:
 
-- **Table ID:** `tbl8b8YqU2T0v7k2T`
-- **Purpose:** Represents individual scenes within a piece of content. Each scene typically has associated text, and eventually, corresponding image and audio assets.
-- **Key Fields (Inferred from sample record):**
-    - `ID_Cena`: Unique identifier for the scene (e.g., `CENA-rec08XolW5uVAfVzO`).
-    - `Conteudo`: Linked record from the `Conteudos` table (inferred, based on workflow).
-    - `Ordem`: Numerical order of the scene within the content.
-    - `Texto_Cena`: The script portion for this specific scene.
-    - `Status_Cena`: Status of the scene generation (e.g., "Pendente").
-    - `words`: Word count of the `Texto_Cena`.
-    - `duracao`: Duration of the scene (likely calculated after audio generation).
-    - `url_s3_image`: (Expected Field) URL of the generated image asset for the scene stored in S3.
-    - `url_s3_audio`: (Expected Field) URL of the generated audio asset for the scene stored in S3.
+| Table Name | Description |
+|------------|-------------|
+| Canais | Channels configuration, themes, and settings |
+| Conteudos | Content items, including themes and generated scripts |
+| Cenas | Individual scenes that make up content items |
+| 🪄 AI Actions | AI action definitions and webhooks |
+| Banco_imagens | Image bank for storing and retrieving images |
+| Assets | Media assets including audio, video, and images |
+| Models | AI model definitions and configurations |
+| ⚙️ Configuracoes | System configuration settings |
+| Contas Canais | Channel accounts for publishing |
+| Templates Video | Video templates for automated video generation |
+| ℹ️ Cost | Cost tracking for generation processes |
+| Jobs_Logs | Logging and tracking of all processing jobs |
 
-## Workflow Integration
+## Key Relationships
 
-This base integrates with external services and workflows (like n8n and the custom API endpoints):
+- Canais → Conteudos: One-to-many relationship, each channel can have multiple content items
+- Conteudos → Cenas: One-to-many relationship, each content item is divided into scenes
+- Canais → AI Actions: Many-to-many relationship for image, audio, and video generation
+- Conteudos → Assets: Many-to-many relationship linking content to generated assets
 
-1.  **Content Generation:** Scripts (`Roteiro_Completo`) are generated based on channel definitions (`Canais`) and themes, then stored in `Conteudos`.
-2.  **Scene Breakdown:** Scripts are broken down into individual scenes (`Cenas`), linked back to the main content.
-3.  **Asset Generation:** Automated processes (potentially triggered by Airtable Automations or external workflows like n8n) generate image and audio assets for each scene, storing their S3 URLs (e.g., `url_s3_image`, `url_s3_audio`) back into the corresponding `Cenas` records.
-4.  **Video Creation:** Workflows (like the `create_final_video.json` n8n workflow) read data from `Conteudos` and `Cenas` (specifically the asset URLs and order) to trigger the `/v1/video/create-final-video` API endpoint.
-5.  **Webhook Notification:** The video creation service (`services/v1/video/create_final_video.py`) uses the `webhook_url` from the `Conteudos` record (or a default) to send a notification upon completion (success or failure) of the video rendering and S3 upload. 
+## Available Documentation
+
+Detailed documentation is available for specific aspects of the Content Flow base:
+
+- [Airtable Client](./airtable_client.md) - How to interact with the base programmatically
+- [Jobs_Logs Table](./jobs_logs_table.md) - How to track and monitor processing jobs
+
+## Accessing the Base
+
+The Content Flow base can be accessed in several ways:
+
+1. **Airtable Web Interface**: Direct access through the Airtable UI
+2. **Airtable API**: Direct API access using the Airtable API and base ID
+3. **AirtableClient**: Recommended approach using our custom client library
+
+### Using the AirtableClient
+
+The `AirtableClient` is the recommended way to interact with the Content Flow base. See the [Airtable Client documentation](./airtable_client.md) for detailed usage instructions.
+
+```python
+from services.airtable_client import AirtableClient
+
+# Initialize the client
+client = AirtableClient()
+
+# Example: List all channels
+channels = client.list_records("channels")
+for channel in channels:
+    print(channel.get("fields", {}).get("Nome_Canal"))
+```
+
+## Job Logging and Monitoring
+
+All processing jobs within the system should be logged to the Jobs_Logs table for tracking and monitoring. See the [Jobs_Logs Table documentation](./jobs_logs_table.md) for details on how to implement proper job logging.
+
+```python
+# Example: Creating a job log entry
+job_log = client.create_job_log(
+    job_id="job-12345",
+    job_type="Content_Generation",
+    service_name="content_generator"
+)
+```
+
+## Base ID and API Access
+
+The Content Flow base ID is `appVgvW0XEsJLXZ0P`. This ID is used when connecting to the base through the API or the AirtableClient.
+
+For API access, you'll need:
+- Base ID: `appVgvW0XEsJLXZ0P`
+- API Key: Obtain from your system administrator or environment configuration
+
+## Recommended Workflows
+
+1. **Content Creation**:
+   - Create/select a Channel
+   - Generate content themes
+   - Select and approve themes
+   - Generate full content
+   - Split content into scenes
+   - Generate assets for each scene
+   - Compose final media
+
+2. **Job Monitoring**:
+   - Create job log entries for each processing step
+   - Update status as jobs progress
+   - Track errors and retry failed jobs
+   - Analyze performance metrics
+
+## Best Practices
+
+1. Always use the AirtableClient for consistent interactions
+2. Log all processing jobs to the Jobs_Logs table
+3. Include proper error handling and retries for failed operations
+4. Use the provided relationship fields to maintain data integrity
+5. Follow the established naming conventions for new records 
