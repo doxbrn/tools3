@@ -393,15 +393,10 @@ def create_final_video(
                 except Exception as e:
                     logger.warning(f"Job {job_id}: caption error {e}")
 
-        # 5) overlay global
-        ov = opts["overlay"]
-        if ov.get("url"):
-            vid_ov = os.path.join(job_dir, f"{job_id}_ov.mp4")
-            _apply_overlay(temp_vid, ov["url"], vid_ov, ov["position"], ov["opacity"])
-            shutil.move(vid_ov, temp_vid)
-            logger.info(f"Job {job_id}: overlay applied")
+        # 5) overlay global (temporariamente removido)
+        # TODO: implementar overlay global no futuro
 
-        # 6) upload
+        # 6) upload final upload
         s3_key = f"final_videos/{job_id}_final.mp4"
         s3_url = upload_to_s3(temp_vid, s3_key,
                               S3_BUCKET_NAME, S3_ENDPOINT_URL,
