@@ -14,10 +14,9 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint
 from app_utils import validate_payload, queue_task_wrapper
 import logging
-import uuid
 from services.v1.video.create_final_video import create_final_video
 from services.authentication import authenticate
 from services.cloud_storage import upload_file
@@ -26,140 +25,6 @@ v1_video_create_final_video_bp = Blueprint(
     'v1_video_create_final_video', __name__
 )
 logger = logging.getLogger(__name__)
-
-
-@v1_video_create_final_video_bp.route('/create-final-video', methods=['POST'])
-@authenticate
-@validate_payload({
-    "type": "object",
-    "properties": {
-        "scenes": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "image_url": {"type": "string", "format": "uri"},
-                    "audio_url": {"type": "string", "format": "uri"},
-                    "text": {"type": "string"},
-                    "options": {
-                        "type": "object",
-                        "properties": {
-                            "overlay": {
-                                "type": "object",
-                                "properties": {
-                                    "url": {"type": "string", "format": "uri"},
-                                    "position": {"type": "string", "enum": ["Topo", "Centro", "Base", "Personalizado"]},
-                                    "opacity": {"type": "number", "minimum": 0, "maximum": 100}
-                                }
-                            },
-                            "zoom": {
-                                "type": "object",
-                                "properties": {
-                                    "type": {"type": "string", "enum": ["Zoom In", "Zoom Out", "Pan Horizontal", "Pan Vertical", "Ken Burns", "Nenhum"]},
-                                    "speed": {"type": "number", "minimum": 1, "maximum": 20}
-                                }
-                            }
-                        }
-                    }
-                },
-                "required": ["image_url", "audio_url"]
-            },
-            "minItems": 1
-        },
-        "title": {"type": "string"},
-        "webhook_url": {"type": "string", "format": "uri"},
-        "id": {"type": "string"},
-        "advanced_options": {
-            "type": "object",
-            "properties": {
-                "overlay": {
-                    "type": "object",
-                    "properties": {
-                        "url": {"type": "string", "format": "uri"},
-                        "position": {"type": "string", "enum": ["Topo", "Centro", "Base", "Personalizado"]},
-                        "opacity": {"type": "number", "minimum": 0, "maximum": 100}
-                    }
-                },
-                "zoom": {
-                    "type": "object",
-                    "properties": {
-                        "type": {"type": "string", "enum": ["Zoom In", "Zoom Out", "Pan Horizontal", "Pan Vertical", "Ken Burns", "Nenhum"]},
-                        "speed": {"type": "number", "minimum": 1, "maximum": 20}
-                    }
-                },
-                "background_music": {
-                    "type": "object",
-                    "properties": {
-                        "url": {"type": "string", "format": "uri"},
-                        "volume": {"type": "number", "minimum": 0, "maximum": 100}
-                    }
-                },
-                "captions": {
-                    "type": "object",
-                    "properties": {
-                        "enabled": {"type": "boolean"},
-                        "style": {"type": "string", "enum": ["Padrão", "Contrastado", "Minimalista", "Grande"]}
-                    }
-                },
-                "transitions": {
-                    "type": "object",
-                    "properties": {
-                        "type": {"type": "string", "enum": ["Corte Seco", "Fade", "Dissolver", "Deslizar", "Zoom"]},
-                        "duration": {"type": "number", "minimum": 0.1, "maximum": 3.0}
-                    }
-                }
-            }
-        }
-    },
-    "required": ["scenes"]
-})
-@queue_task_wrapper(bypass_queue=False)
-def create_final_video_route():
-    """
-    Create a final video by combining multiple scenes (image + audio).
-    Each scene can have visual effects applied, and the final video
-    can include background music and captions/subtitles.
-
-    Request body must include:
-    - scenes: Array of scenes, each with image_url and audio_url
-    
-    Optional parameters:
-    - title: Title of the video
-    - webhook_url: URL to notify when processing is complete
-    - id: Custom identifier for the video
-    - advanced_options: Advanced video processing options including:
-        - overlay: Options for overlay image
-        - zoom: Options for zoom/pan effects
-        - background_music: Options for background music
-        - captions: Options for captions/subtitles
-        - transitions: Options for transitions between scenes
-
-    Returns:
-        JSON with job_id and status
-    """
-    request_data = request.json
-    scenes = request_data.get('scenes', [])
-    title = request_data.get('title')
-    webhook_url = request_data.get('webhook_url')
-    content_id = request_data.get('id')
-    advanced_options = request_data.get('advanced_options')
-
-    job_id = str(uuid.uuid4())
-    logger.info(f"Job {job_id}: Received create-final-video request for {len(scenes)} scenes, id: {content_id}")
-
-    # Process asynchronously
-    import threading
-    thread = threading.Thread(
-        target=create_final_video,
-        args=(job_id, scenes, title, webhook_url, content_id, advanced_options)
-    )
-    thread.start()
-
-    return jsonify({
-        "job_id": job_id,
-        "status": "processing",
-        "message": "Video creation started. You will be notified via webhook when complete."
-    })
 
 
 @v1_video_create_final_video_bp.route(
