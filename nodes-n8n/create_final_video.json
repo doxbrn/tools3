@@ -1,18 +1,60 @@
 {
-    "name": "Create Final Video",
     "nodes": [
+        {
+            "parameters": {},
+            "type": "n8n-nodes-base.manualTrigger",
+            "typeVersion": 1,
+            "position": [
+                -1900,
+                -1100
+            ],
+            "id": "c13ef87e-e783-4a13-ae50-fd876131175d",
+            "name": "When clicking 'Test workflow'"
+        },
+        {
+            "parameters": {
+                "base": {
+                    "__rl": true,
+                    "value": "appVgvW0XEsJLXZ0P",
+                    "mode": "list",
+                    "cachedResultName": "Content Flow",
+                    "cachedResultUrl": "https://airtable.com/appVgvW0XEsJLXZ0P"
+                },
+                "table": {
+                    "__rl": true,
+                    "value": "tblG4KH7skP2FYfm3",
+                    "mode": "list",
+                    "cachedResultName": "Conteudos",
+                    "cachedResultUrl": "https://airtable.com/appVgvW0XEsJLXZ0P/tblG4KH7skP2FYfm3"
+                },
+                "id": "recN53J5hcVKz3DFx",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.airtable",
+            "typeVersion": 2.1,
+            "position": [
+                -1680,
+                -1100
+            ],
+            "id": "df358452-93a3-4ac4-bd52-c1ecbb5c6d79",
+            "name": "Airtable2",
+            "credentials": {
+                "airtableTokenApi": {
+                    "id": "tpzNdnPQRTnUSF6I",
+                    "name": "Airtable Personal Access Token account"
+                }
+            }
+        },
         {
             "parameters": {
                 "method": "POST",
                 "url": "https://tools.paradox8.com/v1/video/create-final-video",
-                "authentication": "predefinedCredentialType",
-                "nodeCredentialName": "API Key Auth",
                 "sendHeaders": true,
                 "headerParameters": {
                     "parameters": [
                         {
                             "name": "x-api-key",
-                            "value": "={{ $credentials.apiKey }}"
+                            "value": "=123456"
                         },
                         {
                             "name": "Content-Type",
@@ -22,7 +64,7 @@
                 },
                 "sendBody": true,
                 "specifyBody": "json",
-                "jsonBody": "={{ { \"scenes\": $json['url_s3_image (from Cenas)'].map((imgUrl, index) => ({ \"image_url\": imgUrl, \"audio_url\": $json['url_s3_audio (from Cenas)'][index] })), \"title\": $json['Tema Name'], \"id\": $json.ID, \"webhook_url\": $json.webhook_url || 'https://n8n.example.com/webhook/video-complete' } }}",
+                "jsonBody": "={{ { \"scenes\": $json['url_s3_image (from Cenas)'].map((imgUrl, index) => ({ \"image_url\": imgUrl, \"audio_url\": $json['url_s3_audio (from Cenas)'][index] })), \"title\": $json['Tema Name'], \"id\": $json.ID, \"webhook_url\": $json.webhook_url || 'https://api.paradox8.com/webhook/get-render-video' } }}",
                 "options": {
                     "allowUnauthorizedCerts": true,
                     "response": {
@@ -36,47 +78,26 @@
             "type": "n8n-nodes-base.httpRequest",
             "typeVersion": 4.2,
             "position": [
-                120,
-                1360
+                -1240,
+                -1100
             ],
-            "id": "create-final-video-node",
+            "id": "1a08bbbb-a5a5-4d24-bce4-c030b2846690",
             "name": "Create Final Video"
-        },
-        {
-            "parameters": {
-                "values": {
-                    "string": [
-                        {
-                            "name": "scenes",
-                            "value": "=[{\n  \"image_url\": \"https://app.paradox8.com/tmp/C-83-S1.jpg\",\n  \"audio_url\": \"https://app.paradox8.com/tmp/recDosXVGjF1CiUVV.wav\"\n},\n{\n  \"image_url\": \"https://app.paradox8.com/tmp/C-83-S2.jpg\",\n  \"audio_url\": \"https://app.paradox8.com/tmp/recPGI3Y3unW66ID7.wav\"\n},\n{\n  \"image_url\": \"https://app.paradox8.com/tmp/C-83-S3.jpg\",\n  \"audio_url\": \"https://app.paradox8.com/tmp/rec3jnBUSZYFHF7rD.wav\"\n},\n{\n  \"image_url\": \"https://app.paradox8.com/tmp/C-83-S4.jpg\",\n  \"audio_url\": \"https://app.paradox8.com/tmp/recBpcEQmAmsKGntI.wav\"\n},\n{\n  \"image_url\": \"https://app.paradox8.com/tmp/C-83-S5.jpg\",\n  \"audio_url\": \"https://app.paradox8.com/tmp/recRMGvQDg3gaiVTW.wav\"\n},\n{\n  \"image_url\": \"https://app.paradox8.com/tmp/C-83-S6.jpg\",\n  \"audio_url\": \"https://app.paradox8.com/tmp/recv4GhLA1KDAGcRH.wav\"\n},\n{\n  \"image_url\": \"https://app.paradox8.com/tmp/C-83-S7.jpg\",\n  \"audio_url\": \"https://app.paradox8.com/tmp/rectDSxyxSBuBi2GC.wav\"\n},\n{\n  \"image_url\": \"https://app.paradox8.com/tmp/C-83-S8.jpg\",\n  \"audio_url\": \"https://app.paradox8.com/tmp/recuv9gNsDdk6fhkF.wav\"\n}]"
-                        },
-                        {
-                            "name": "title",
-                            "value": "The Sacred Roar Within: Activating Your Prophetic Fire in the Era of Chaos"
-                        },
-                        {
-                            "name": "webhook_url",
-                            "value": "https://n8n.example.com/webhook/video-complete"
-                        },
-                        {
-                            "name": "id",
-                            "value": "content-C-83"
-                        }
-                    ]
-                },
-                "options": {}
-            },
-            "name": "Set Final Video Data",
-            "type": "n8n-nodes-base.set",
-            "typeVersion": 1,
-            "position": [
-                480,
-                300
-            ]
         }
     ],
     "connections": {
-        "Set Final Video Data": {
+        "When clicking 'Test workflow'": {
+            "main": [
+                [
+                    {
+                        "node": "Airtable2",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Airtable2": {
             "main": [
                 [
                     {
@@ -88,12 +109,9 @@
             ]
         }
     },
-    "active": false,
-    "settings": {},
     "pinData": {},
-    "id": "create_final_video_example",
     "meta": {
-        "instanceId": "example"
-    },
-    "tags": []
+        "templateCredsSetupCompleted": true,
+        "instanceId": "0702d98d5e5ce0169efd194d601636a5f8df4c48cea7ff70230e5bc3bbbb97f4"
+    }
 }
