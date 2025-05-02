@@ -15,13 +15,13 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 
-
-from flask import Blueprint, request, jsonify
+from flask import Blueprint
+# from flask import request, jsonify # Unused imports
 from services.authentication import authenticate
 from app_utils import validate_payload, queue_task_wrapper
 from services.v1.s3.upload import stream_upload_to_s3
-import os
-import json
+# import os # Unused import
+# import json # Unused import
 import logging
 
 logger = logging.getLogger(__name__)
@@ -42,10 +42,13 @@ v1_s3_upload_bp = Blueprint('v1_s3_upload', __name__)
 def s3_upload_endpoint(job_id, data):
     try:
         file_url = data.get('file_url')
-        filename = data.get('filename')  # Optional, will default to original filename if not provided
+        # Optional, will default to original filename if not provided
+        filename = data.get('filename')
         make_public = data.get('public', False)  # Default to private
         
-        logger.info(f"Job {job_id}: Starting S3 streaming upload from {file_url}")
+        logger.info(
+            f"Job {job_id}: Starting S3 streaming upload from {file_url}"
+        )
         
         # Call the service function to handle the upload
         result = stream_upload_to_s3(file_url, filename, make_public)

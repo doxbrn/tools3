@@ -19,9 +19,16 @@ import shutil
 import logging
 import subprocess
 import requests
-from config import LOCAL_STORAGE_PATH, S3_BUCKET_NAME
+from config import (
+    LOCAL_STORAGE_PATH,
+    S3_BUCKET_NAME,
+    S3_ENDPOINT_URL,
+    S3_ACCESS_KEY,
+    S3_SECRET_KEY,
+    S3_REGION
+)
 from services.file_management import download_file
-from services.s3_toolkit import upload_file
+from services.s3_toolkit import upload_to_s3
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +87,6 @@ def process_create_final_video(scenes, job_id, title=None, webhook_url=None):
     final_video_local_path = os.path.join(
         LOCAL_STORAGE_PATH, f"{job_id}_final.mp4"
     )
-    final_video_s3_object_name = f"final_videos/{job_id}_final.mp4"
     concat_file_path = os.path.join(temp_dir, "concat_list.txt")
     s3_url = None
 
@@ -157,12 +163,14 @@ def process_create_final_video(scenes, job_id, title=None, webhook_url=None):
         )
 
         logger.info(f"Job {job_id}: Uploading {final_video_local_path} to S3 "
-                    f"bucket {S3_BUCKET_NAME} as "
-                    f"{final_video_s3_object_name}")
-        s3_url = upload_file(
-            local_path=final_video_local_path,
+                    f"bucket {S3_BUCKET_NAME}")
+        s3_url = upload_to_s3(
+            file_path=final_video_local_path,
+            s3_url=S3_ENDPOINT_URL,
+            access_key=S3_ACCESS_KEY,
+            secret_key=S3_SECRET_KEY,
             bucket_name=S3_BUCKET_NAME,
-            object_name=final_video_s3_object_name
+            region=S3_REGION
         )
         if not s3_url:
             raise Exception(

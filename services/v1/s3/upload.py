@@ -22,7 +22,6 @@ import logging
 import requests
 from urllib.parse import urlparse, unquote, quote
 import uuid
-import re
 
 logger = logging.getLogger(__name__)
 

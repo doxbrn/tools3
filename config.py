@@ -38,7 +38,8 @@ S3_BUCKET_NAME = os.environ.get('S3_BUCKET_NAME', '')
 S3_REGION = os.environ.get('S3_REGION', 'us-east-1')
 
 def validate_env_vars(provider):
-    """Validate the necessary environment variables for the selected storage provider"""
+    """ Validate the necessary environment variables for the selected storage
+        provider """
     required_vars = {
         'GCP': ['GCP_BUCKET_NAME', 'GCP_SA_CREDENTIALS'],
         'S3': ['S3_ENDPOINT_URL', 'S3_ACCESS_KEY', 'S3_SECRET_KEY',
