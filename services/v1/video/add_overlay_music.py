@@ -3,56 +3,20 @@
 import os
 import shutil
 import logging
-import subprocess
-from typing import Optional  # Ensure Optional is imported
+from typing import Optional
 
 from config import (
     LOCAL_STORAGE_PATH, S3_ENDPOINT_URL, S3_ACCESS_KEY,
     S3_SECRET_KEY, S3_BUCKET_NAME, S3_REGION
 )
 from services.s3_toolkit import upload_to_s3
-from services.v1.video.create_final_video import (
-    _download_stream, _run_ffmpeg, _send_webhook, VideoCreationError,
-    _get_media_duration
+from .video_utils import (
+    _download_stream, _run_ffmpeg, _send_webhook,
+    _get_media_duration, _get_video_dimensions,
+    FFmpegExecutionError, FFprobeError, VideoCreationError
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _get_video_dimensions(path: str) -> tuple[int, int]:
-    """Gets video width and height using ffprobe."""
-    cmd = [
-        'ffprobe', '-v', 'error',
-        '-select_streams', 'v:0',  # Select first video stream
-        '-show_entries', 'stream=width,height',
-        '-of', 'csv=s=x:p=0',  # Output format widthxheight
-        path
-    ]
-    logger.debug(f"Getting dimensions for {path}")
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if proc.returncode != 0:
-        stderr = proc.stderr.strip()
-        logger.error(
-            f"ffprobe dimension check failed for {path}. Code: {proc.returncode}"
-        )
-        logger.error(f"ffprobe stderr: {stderr}")
-        raise OverlayMusicError(
-            f"ffprobe failed to get dimensions for {path}: {stderr}"
-        )
-    try:
-        dimensions_str = proc.stdout.strip()
-        width, height = map(int, dimensions_str.split('x'))
-        logger.debug(f"Dimensions for {path}: {width}x{height}")
-        if width <= 0 or height <= 0:
-            raise ValueError("Invalid dimensions")
-        return width, height
-    except Exception as e:
-        logger.error(
-            f"Could not parse dimensions '{dimensions_str}' for {path}: {e}"
-        )
-        raise OverlayMusicError(
-            f"Invalid dimensions '{dimensions_str}' for {path}"
-        )
 
 
 class OverlayMusicError(Exception):
@@ -246,7 +210,7 @@ def add_overlay_and_music(
         logger.info(f"[{content_id}] Upload complete. S3 URL: {s3_url}")
         status = "completed"
 
-    except (OverlayMusicError, VideoCreationError) as e:  # Catch specific errors
+    except (OverlayMusicError, VideoCreationError, FFprobeError, FFmpegExecutionError, IOError) as e:
         logger.error(f"[{content_id}] Error processing overlay/music: {e}")
         error_message = str(e)
         status = "failed"
