@@ -146,7 +146,7 @@ def process_create_final_video(scenes, job_id, title=None, webhook_url=None):
 
         with open(concat_file_path, 'w') as f:
             for segment in segment_files:
-                f.write(f"file '{os.path.abspath(segment)}'\\n")
+                f.write(f"file '{os.path.abspath(segment)}'\n")
 
         concat_cmd = [
             'ffmpeg', '-y',
