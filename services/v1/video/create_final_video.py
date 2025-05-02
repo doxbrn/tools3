@@ -35,9 +35,6 @@ logger = logging.getLogger(__name__)
 
 
 def _get_media_duration(path: str) -> float:
-    """
-    Retorna a duração do arquivo de mídia em segundos, ou valor padrão se falhar.
-    """
     cmd = [
         'ffprobe', '-v', 'error',
         '-show_entries', 'format=duration',
@@ -55,9 +52,6 @@ def _get_media_duration(path: str) -> float:
 
 
 def _run_ffmpeg(cmd: List[str], err_msg: str) -> None:
-    """
-    Executa um comando FFmpeg, lança exceção em caso de erro.
-    """
     logger.debug(f"Running FFmpeg command: {' '.join(cmd)}")
     try:
         subprocess.run(cmd, check=True, capture_output=True, text=True)
@@ -69,9 +63,6 @@ def _run_ffmpeg(cmd: List[str], err_msg: str) -> None:
 def _merge_options(defaults: Dict[str, Dict[str, Any]],
                    overrides: Optional[Dict[str, Any]] = None
                    ) -> Dict[str, Dict[str, Any]]:
-    """
-    Mescla dicionários aninhados de opções padrão com as fornecidas pelo usuário.
-    """
     result = {k: v.copy() for k, v in defaults.items()}
     if not overrides:
         return result
@@ -82,10 +73,6 @@ def _merge_options(defaults: Dict[str, Dict[str, Any]],
 
 
 def _prepare_scene_files(job_dir: str, idx: int, scene: Dict[str, Any]) -> Tuple[str, str, str]:
-    """
-    Cria diretório de segmento, faz download de imagem e áudio.
-    Retorna paths: (image_path, audio_path, segment_dir).
-    """
     seg_dir = os.path.join(job_dir, f"{DEFAULT_SEGMENT_PREFIX}{idx}")
     os.makedirs(seg_dir, exist_ok=True)
     img_path = os.path.join(seg_dir, f"image_{idx}.jpg")
@@ -102,9 +89,6 @@ def _send_webhook_notification(
     data: Optional[Dict[str, Any]] = None,
     error_message: Optional[str] = None
 ) -> None:
-    """
-    Envia notificação a um webhook com status do job.
-    """
     if not webhook_url:
         logger.info(f"Job {job_id}: No webhook URL provided, skipping notification.")
         return
@@ -128,9 +112,6 @@ def _create_segment_from_image(
     audio_path: str,
     output_path: str
 ) -> None:
-    """
-    Cria um segmento de vídeo estático a partir de imagem e áudio.
-    """
     duration = _get_media_duration(audio_path)
     cmd = [
         'ffmpeg', '-y',
@@ -145,7 +126,6 @@ def _create_segment_from_image(
     try:
         _run_ffmpeg(cmd, f"Error creating segment from image {output_path}")
     except Exception:
-        # Fallback: vídeo apenas da imagem
         fallback = [
             'ffmpeg', '-y',
             '-loop', '1', '-i', image_path,
@@ -164,12 +144,8 @@ def _apply_zoom_effect(
     zoom_speed: int,
     audio_path: str
 ) -> None:
-    """
-    Gera um vídeo com efeito de zoom na imagem por toda a duração do áudio.
-    """
     duration = _get_media_duration(audio_path)
     speed = max(1, min(20, zoom_speed)) / 10.0
-    # Definição de filtro zoompan
     if zoom_type == "Zoom In":
         filter_str = f"zoompan=z='min(zoom+{speed/100},1.5)':d={int(duration*25)}:s=1920x1080"
     elif zoom_type == "Zoom Out":
@@ -179,8 +155,7 @@ def _apply_zoom_effect(
     elif zoom_type == "Pan Vertical":
         filter_str = f"zoompan=z=1.2:y='min(in_h*(1-1/zoom)*(on/{int(duration*25)}),in_h*(1-1/zoom))':d={int(duration*25)}:s=1920x1080"
     elif zoom_type == "Ken Burns":
-        filter_str = f"zoompan=z='min(max(zoom,pzoom)+{speed/100},1.5)':d={int(duration*25)}:"
-        filter_str += "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080"
+        filter_str = f"zoompan=z='min(max(zoom,pzoom)+{speed/100},1.5)':d={int(duration*25)}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080"
     else:
         filter_str = "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2"
     cmd = [
@@ -194,7 +169,6 @@ def _apply_zoom_effect(
     try:
         _run_ffmpeg(cmd, f"Error applying zoom effect to {output_path}")
     except Exception:
-        # Fallback: manter estático
         _run_ffmpeg([
             'ffmpeg', '-y',
             '-loop', '1', '-i', image_path,
@@ -209,9 +183,6 @@ def _create_segment_with_audio(
     audio_path: str,
     output_path: str
 ) -> None:
-    """
-    Combina um vídeo com uma trilha de áudio, substituindo-a.
-    """
     cmd = [
         'ffmpeg', '-y',
         '-i', video_path,
@@ -230,9 +201,6 @@ def _apply_overlay(
     position: str = "Topo",
     opacity: int = 100
 ) -> None:
-    """
-    Baixa PNG de overlay e aplica sobre o vídeo com transparência.
-    """
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
         download_file(overlay_url, tmp.name)
         overlay_path = tmp.name
@@ -260,25 +228,19 @@ def _concatenate_with_transitions(
     trans_type: str,
     trans_dur: float
 ) -> None:
-    """
-    Concatena segmentos usando filtros de transição complexos.
-    """
     inputs = []
-    filter_complex_parts = []
+    filter_parts = []
     for idx, seg in enumerate(segment_files):
         inputs += ['-i', seg]
-        filter_complex_parts.append(f"[{idx}:v]setpts=PTS-STARTPTS[v{idx}];[{idx}:a]asetpts=PTS-STARTPTS[a{idx}];")
-    # Escolhe filtro baseado em trans_type… (similar ao anterior)
-    # Para brevidade, assume-se fade crossfade genérico
+        filter_parts.append(f"[{idx}:v]setpts=PTS-STARTPTS[v{idx}];[{idx}:a]asetpts=PTS-STARTPTS[a{idx}];")
     for i in range(len(segment_files)-1):
         dur = _get_media_duration(segment_files[i])
         out_time = max(0, dur - trans_dur)
-        trans = f"xfade=transition=fade:duration={trans_dur}:offset={out_time}"
-        filter_complex_parts.append(f"[v{i}][v{i+1}]{trans}[v_t{i}];")
-        filter_complex_parts.append(f"[a{i}][a{i+1}]acrossfade=d={trans_dur}[a_t{i}];")
-    # Fluxo final
+        transition = f"xfade=transition=fade:duration={trans_dur}:offset={out_time}"
+        filter_parts.append(f"[v{i}][v{i+1}]{transition}[v_t{i}];")
+        filter_parts.append(f"[a{i}][a{i+1}]acrossfade=d={trans_dur}[a_t{i}];")
     last = len(segment_files) - 2
-    filter_complex = ''.join(filter_complex_parts) + f"[v_t{last}][a_t{last}]"
+    filter_complex = ''.join(filter_parts) + f"[v_t{last}][a_t{last}]"
     cmd = ['ffmpeg', '-y'] + inputs + [
         '-filter_complex', filter_complex,
         '-c:v', 'libx264', '-c:a', 'aac', output_path
@@ -286,16 +248,12 @@ def _concatenate_with_transitions(
     try:
         _run_ffmpeg(cmd, f"Error concatenating with transitions to {output_path}")
     except Exception:
-        # fallback concat simples
         list_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt')
         for seg in segment_files:
             list_file.write(f"file '{os.path.abspath(seg)}'\n")
         list_file.close()
         fallback = [
-            'ffmpeg', '-y',
-            '-f', 'concat', '-safe', '0',
-            '-i', list_file.name,
-            '-c', 'copy', output_path
+            'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', list_file.name, '-c', 'copy', output_path
         ]
         _run_ffmpeg(fallback, f"Fallback concat to {output_path}")
         os.unlink(list_file.name)
@@ -307,9 +265,6 @@ def _add_background_music(
     output_path: str,
     volume: int = 20
 ) -> None:
-    """
-    Adiciona música de fundo ao vídeo, fazendo loop se necessário.
-    """
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
         download_file(music_url, tmp.name)
         music_path = tmp.name
@@ -319,13 +274,9 @@ def _add_background_music(
         'ffmpeg', '-y',
         '-i', video_path,
         '-stream_loop', '-1', '-i', music_path,
-        '-filter_complex', 
-        f"[1:a]volume={vol},aloop=loop=-1:size=2e+09,atrim=end={vid_dur}[bgm];"
-        "[0:a][bgm]amix=inputs=2:duration=first[aout]",
-        '-map', '0:v',
-        '-map', '[aout]',
-        '-c:v', 'copy', '-c:a', 'aac',
-        '-shortest', output_path
+        '-filter_complex', f"[1:a]volume={vol},aloop=loop=-1:size=2e+09,atrim=end={vid_dur}[bgm];[0:a][bgm]amix=inputs=2:duration=first[aout]",
+        '-map', '0:v', '-map', '[aout]',
+        '-c:v', 'copy', '-c:a', 'aac', '-shortest', output_path
     ]
     _run_ffmpeg(cmd, f"Error adding background music to {video_path}")
     os.remove(music_path)
@@ -339,22 +290,15 @@ def create_final_video(
     content_id: Optional[str] = None,
     advanced_options: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
-    """
-    Orquestra a criação do vídeo final: faz download de cenas, aplica efeitos,
-    concatena, adiciona música, legendas, faz upload ao S3 e notifica webhook.
-    Retorna um dict com status e URLs.
-    """
     video_opts = _merge_options(DEFAULT_VIDEO_OPTIONS, advanced_options)
     job_dir = os.path.join(LOCAL_STORAGE_PATH, f"{DEFAULT_STORAGE_PREFIX}{job_id}")
     os.makedirs(job_dir, exist_ok=True)
     segment_paths: List[str] = []
     try:
         logger.info(f"Job {job_id}: Iniciando com {len(scenes)} cenas. Title={title}")
-        # Processa cada cena
         for idx, scene in enumerate(scenes):
             img_path, aud_path, seg_dir = _prepare_scene_files(job_dir, idx, scene)
             opts = scene.get("options", {})
-            # Zoom
             zoom_type = opts.get("zoom", {}).get("type", video_opts["zoom"]["type"])
             zoom_speed = opts.get("zoom", {}).get("speed", video_opts["zoom"]["speed"])
             segment_raw = os.path.join(seg_dir, f"{DEFAULT_SEGMENT_PREFIX}{idx}.mp4")
@@ -364,16 +308,7 @@ def create_final_video(
                 _create_segment_with_audio(zoomed, aud_path, segment_raw)
             else:
                 _create_segment_from_image(img_path, aud_path, segment_raw)
-            # Overlay
-            overlay_url = opts.get("overlay", {}).get("url", video_opts["overlay"]["url"])
-            if overlay_url:
-                overlaid = os.path.join(seg_dir, f"overlaid_{idx}.mp4")
-                pos = opts.get("overlay", {}).get("position", video_opts["overlay"]["position"])
-                opac = opts.get("overlay", {}).get("opacity", video_opts["overlay"]["opacity"])
-                _apply_overlay(segment_raw, overlay_url, overlaid, pos, opac)
-                segment_raw = overlaid
             segment_paths.append(segment_raw)
-        # Concatenação
         final_temp = os.path.join(job_dir, f"{job_id}_temp.mp4")
         trans = video_opts["transitions"]["type"]
         dur = video_opts["transitions"]["duration"]
@@ -383,19 +318,16 @@ def create_final_video(
                 for sp in segment_paths:
                     f.write(f"file '{os.path.abspath(sp)}'\n")
             _run_ffmpeg([
-                'ffmpeg', '-y', '-f', 'concat', '-safe', '0',
-                '-i', concat_list, '-c', 'copy', final_temp
+                'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', concat_list, '-c', 'copy', final_temp
             ], f"Error simple concat for {job_id}")
         else:
             _concatenate_with_transitions(segment_paths, final_temp, trans, dur)
-        # Música de fundo
         bg_url = video_opts["background_music"]["url"]
         if bg_url:
             with_music = os.path.join(job_dir, f"{job_id}_with_bgm.mp4")
             vol = video_opts["background_music"]["volume"]
             _add_background_music(final_temp, bg_url, with_music, vol)
             shutil.move(with_music, final_temp)
-        # Legendas
         caps = video_opts.get("captions", {})
         if caps.get("enabled"):
             text_all = "\n".join(s.get("text", "") for s in scenes if s.get("text"))
@@ -405,22 +337,26 @@ def create_final_video(
                     if os.path.exists(captioned):
                         shutil.move(captioned, final_temp)
                 except Exception as e:
-                    logger.warning(f"Job {job_id}: Captioning failed: {e}")
-        # Upload ao S3
+                    logger.warning(f"Job {job_id}: Captioning falhou: {e}")
+        # Overlay global (aplicado no vídeo completo)
+        global_overlay_url = video_opts["overlay"]["url"]
+        if global_overlay_url:
+            overlaid_final = os.path.join(job_dir, f"{job_id}_overlay.mp4")
+            pos_global = video_opts["overlay"]["position"]
+            opac_global = video_opts["overlay"]["opacity"]
+            _apply_overlay(final_temp, global_overlay_url, overlaid_final, pos_global, opac_global)
+            shutil.move(overlaid_final, final_temp)
         s3_key = f"final_videos/{job_id}_final.mp4"
         s3_url = upload_to_s3(final_temp, s3_key,
                               S3_BUCKET_NAME, S3_ENDPOINT_URL,
                               S3_ACCESS_KEY, S3_SECRET_KEY, S3_REGION)
-        # Limpeza
         shutil.rmtree(job_dir)
-        # Notificação e retorno
         result = {"status": "completed", "video_url": s3_url, "title": title, "id": content_id}
-        _send_webhook_notification(webhook_url, job_id, "completed", data={"video_url": s3_url, "title": title, "id": content_id})
+        _send_webhook_notification(webhook_url, job_id, "completed", data=result)
         return result
     except Exception as e:
         logger.exception(f"Job {job_id}: Falha geral: {e}")
         _send_webhook_notification(webhook_url, job_id, "failed", error_message=str(e))
-        # Cleanup parcial
         try:
             shutil.rmtree(job_dir)
         except Exception:
