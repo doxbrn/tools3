@@ -6,7 +6,6 @@ import subprocess
 import requests
 import tempfile
 import urllib.parse
-import time
 from typing import List, Dict, Optional, Any
 
 from config import (
@@ -19,20 +18,19 @@ from config import (
 )
 from services.s3_toolkit import upload_to_s3
 from services.caption_video import process_captioning
-from services.airtable_client import AirtableClient
 
 logger = logging.getLogger(__name__)
 
 # ====== Configurações Padrão ======
-DEFAULT_STORAGE_PREFIX = "final_video_"
-DEFAULT_SEGMENT_PREFIX = "segment_"
+DEFAULT_STORAGE_PREFIX    = "final_video_"
+DEFAULT_SEGMENT_PREFIX    = "segment_"
 DEFAULT_DURATION_FALLBACK = 10.0  # duração padrão ao não obter duração real
 DEFAULT_VIDEO_OPTIONS: Dict[str, Dict[str, Any]] = {
-    "overlay": {"url": None, "position": "Topo", "opacity": 100},
-    "zoom": {"type": "Nenhum", "speed": 5},
+    "overlay":          {"url": None, "position": "Topo", "opacity": 100},
+    "zoom":             {"type": "Nenhum", "speed": 5},
     "background_music": {"url": None, "volume": 20},
-    "captions": {"enabled": False, "type": "srt", "style": "Padrão"},
-    "transitions": {"type": "Fade", "duration": 1.0},
+    "captions":         {"enabled": False, "type": "srt", "style": "Padrão"},
+    "transitions":      {"type": "Fade", "duration": 1.0},
 }
 # ===================================
 
@@ -62,14 +60,9 @@ def _get_media_duration(path: str) -> float:
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, check=True)
         val = res.stdout.strip()
-        if val.replace('.', '', 1).isdigit():
-            return float(val)
-        return DEFAULT_DURATION_FALLBACK
+        return float(val) if val.replace('.', '', 1).isdigit() else DEFAULT_DURATION_FALLBACK
     except Exception:
-        logger.warning(
-            f"Could not get duration for {path}, using fallback "
-            f"{DEFAULT_DURATION_FALLBACK}s"
-        )
+        logger.warning(f"Could not get duration for {path}, using fallback {DEFAULT_DURATION_FALLBACK}s")
         return DEFAULT_DURATION_FALLBACK
 
 
@@ -81,10 +74,7 @@ def _run_ffmpeg(cmd: List[str], err_msg: str) -> None:
     subprocess.run(cmd, check=True, capture_output=True, text=True)
 
 
-def _merge_options(
-    defaults: Dict[str, Dict[str, Any]],
-    overrides: Optional[Dict[str, Any]]
-) -> Dict[str, Dict[str, Any]]:
+def _merge_options(defaults: Dict[str, Dict[str, Any]], overrides: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """
     Mescla opções avançadas do request com as defaults.
     """
@@ -105,12 +95,9 @@ def _prepare_scene_files(job_dir: str, idx: int, scene: Dict[str, Any]) -> (str,
     """
     seg_dir = os.path.join(job_dir, f"{DEFAULT_SEGMENT_PREFIX}{idx}")
     os.makedirs(seg_dir, exist_ok=True)
-    
-    def get_filename(url):
-        return os.path.basename(urllib.parse.urlparse(url).path)
-        
-    img_path = os.path.join(seg_dir, get_filename(scene["image_url"]))
-    aud_path = os.path.join(seg_dir, get_filename(scene["audio_url"]))
+    fn = lambda u: os.path.basename(urllib.parse.urlparse(u).path)
+    img_path = os.path.join(seg_dir, fn(scene["image_url"]))
+    aud_path = os.path.join(seg_dir, fn(scene["audio_url"]))
     _download_file(scene["image_url"], img_path)
     _download_file(scene["audio_url"], aud_path)
     return img_path, aud_path
@@ -128,10 +115,8 @@ def _send_webhook_notification(
         logger.debug("No webhook URL for job %s", job_id)
         return
     payload = {"job_id": job_id, "status": status}
-    if data:
-        payload["data"] = data
-    if error_message:
-        payload["error"] = error_message
+    if data: payload["data"] = data
+    if error_message: payload["error"] = error_message
     try:
         resp = requests.post(webhook_url, json=payload)
         logger.info("Webhook status %s for job %s", resp.status_code, job_id)
@@ -157,7 +142,7 @@ def _create_segment_from_image(image_path: str, audio_path: str, out_path: str) 
     ]
     try:
         _run_ffmpeg(cmd, f"Error creating static segment {out_path}")
-    except Exception:
+    except:
         logger.info("Fallback static for %s", out_path)
         fb = [
             "ffmpeg", "-y",
@@ -187,20 +172,11 @@ def _apply_zoom_effect(
         return
     # define filter_complex usando dur
     if zoom_type == "Zoom In":
-        zoom_factor = speed / 100
-        filt = f"zoompan=z='min(zoom+{zoom_factor},1.5)':d={int(dur*25)}:s=1920x1080"
+        filt = f"zoompan=z='min(zoom+{speed/100},1.5)':d={int(dur*25)}:s=1920x1080"
     elif zoom_type == "Zoom Out":
-        zoom_factor = speed / 100
-        filt = (
-            f"zoompan=z='if(eq(on,1),1.5,max(1.5-{zoom_factor}*on/d,1))'"
-            f":d={int(dur*25)}:s=1920x1080"
-        )
+        filt = f"zoompan=z='if(eq(on,1),1.5,max(1.5-{speed/100}*on/d,1))':d={int(dur*25)}:s=1920x1080"
     else:
-        zoom_factor = speed / 100
-        filt = (
-            f"zoompan=z='min(max(zoom,pzoom)+{zoom_factor},1.5)'"
-            f":d={int(dur*25)}:s=1920x1080"
-        )
+        filt = f"zoompan=z='min(max(zoom,pzoom)+{speed/100},1.5)':d={int(dur*25)}:s=1920x1080"
     cmd = [
         "ffmpeg", "-y",
         "-loop", "1", "-i", image_path,
@@ -211,7 +187,7 @@ def _apply_zoom_effect(
     ]
     try:
         _run_ffmpeg(cmd, f"Error applying zoom effect to {output_path}")
-    except Exception:
+    except:
         _create_segment_from_image(image_path, audio_path, output_path)
 
 
@@ -249,21 +225,22 @@ def _apply_overlay(
     tmp.close()
     _download_file(overlay_url, tmp.name)
     pos_map = {
-        "Topo": "x=(main_w-overlay_w)/2:y=10",
+        "Topo":   "x=(main_w-overlay_w)/2:y=10",
         "Centro": "x=(main_w-overlay_w)/2:y=(main_h-overlay_h)/2",
-        "Base": "x=(main_w-overlay_w)/2:y=main_h-overlay_h-10"
+        "Base":   "x=(main_w-overlay_w)/2:y=main_h-overlay_h-10"
     }
-    pos = pos_map.get(position, pos_map["Topo"])
+    pos = pos_map.get(position, pos_map["Topo"] )
     alpha = max(0, min(100, opacity)) / 100.0
     logger.info("Applying overlay %s opacity=%d", overlay_url, opacity)
+    # Adiciona encoding de vídeo para evitar erro de muxer
     cmd = [
-        "ffmpeg", "-y",
+        "ffmpeg","-y",
         "-i", video_path,
         "-i", tmp.name,
         "-filter_complex",
-        f"[1:v]format=rgba,colorchannelmixer=a={alpha}[ovl];"
-        f"[0:v][ovl]overlay={pos}",
-        "-c:a", "copy", output_path
+        f"[1:v]format=rgba,colorchannelmixer=a={alpha}[ovl];[0:v][ovl]overlay={pos}",
+        "-c:v","libx264","-preset","fast",  # encode video
+        "-c:a","copy", output_path
     ]
     _run_ffmpeg(cmd, f"Error applying overlay to {video_path}")
     os.remove(tmp.name)
@@ -281,11 +258,7 @@ def _concatenate_with_transitions(
     inputs, fc = [], []
     for i, seg in enumerate(segment_files):
         inputs += ["-i", seg]
-        filter_str = (
-            f"[{i}:v]setpts=PTS-STARTPTS[v{i}];"
-            f"[{i}:a]asetpts=PTS-STARTPTS[a{i}];"
-        )
-        fc.append(filter_str)
+        fc.append(f"[{i}:v]setpts=PTS-STARTPTS[v{i}];[{i}:a]asetpts=PTS-STARTPTS[a{i}];")
     for i in range(len(segment_files)-1):
         dur = _get_media_duration(segment_files[i])
         off = max(0, dur-trans_dur)
@@ -294,26 +267,20 @@ def _concatenate_with_transitions(
         fc.append(f"[a{i}][a{i+1}]acrossfade=d={trans_dur}[at{i}];")
     last = len(segment_files)-2
     filter_complex = "".join(fc) + f"[vt{last}][at{last}]"
-    cmd = ["ffmpeg", "-y"] + inputs + [
+    cmd = ["ffmpeg","-y"] + inputs + [
         "-filter_complex", filter_complex,
-        "-c:v", "libx264", "-c:a", "aac", output_path
+        "-c:v","libx264","-c:a","aac", output_path
     ]
     try:
-        _run_ffmpeg(
-            cmd, f"Error concatenating with transitions to {output_path}"
-        )
-    except Exception:
+        _run_ffmpeg(cmd, f"Error concatenating with transitions to {output_path}")
+    except:
         logger.info("Fallback simple concat")
-        listf = tempfile.NamedTemporaryFile(
-            mode="w", delete=False, suffix=".txt"
-        )
+        listf = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt")
         for seg in segment_files:
             listf.write(f"file '{os.path.abspath(seg)}'\n")
         listf.close()
-        fb = [
-            "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", listf.name,
-            "-c", "copy", output_path
-        ]
+        fb = ["ffmpeg","-y","-f","concat","-safe","0","-i",listf.name,
+              "-c","copy", output_path]
         _run_ffmpeg(fb, f"Error fallback concat {output_path}")
         os.remove(listf.name)
 
@@ -334,18 +301,13 @@ def _add_background_music(
     vol = max(0, min(100, volume)) / 100.0
     logger.info("Adding background music %s vol=%.2f", music_url, vol)
     cmd = [
-        "ffmpeg", "-y",
-        "-i", video_path,
-        "-stream_loop", "-1",
-        "-i", tmp.name,
+        "ffmpeg","-y","-i", video_path,
+        "-stream_loop","-1","-i", tmp.name,
         "-filter_complex",
         f"[1:a]volume={vol},aloop=loop=-1:size=2e+09,atrim=end={dur}[bgm];"
         "[0:a][bgm]amix=inputs=2:duration=first[aout]",
-        "-map", "0:v",
-        "-map", "[aout]",
-        "-c:v", "copy",
-        "-c:a", "aac",
-        "-shortest", output_path
+        "-map","0:v","-map","[aout]",
+        "-c:v","copy","-c:a","aac","-shortest", output_path
     ]
     _run_ffmpeg(cmd, f"Error adding BGM to {output_path}")
     os.remove(tmp.name)
@@ -371,53 +333,17 @@ def create_final_video(
     Duration of each scene/zoom == audio duration.
     """
     logger.info(f"Job {job_id}: start pipeline count={len(scenes)} scenes")
-    
-    # Initialize Airtable client for job logging
-    airtable = AirtableClient()
-    
-    # Create initial job log entry
-    log_entry = airtable.create_job_log(
-        job_id=job_id,
-        job_type="Video_Generation",
-        service_name="create_final_video",
-        related_content_id=content_id,
-        metadata={
-            "scene_count": len(scenes),
-            "title": title,
-            "options": advanced_options
-        }
-    )
-    
-    log_record_id = log_entry.get("id")
-    start_time = time.time()
-    
     opts = _merge_options(DEFAULT_VIDEO_OPTIONS, advanced_options)
-    job_dir = os.path.join(
-        LOCAL_STORAGE_PATH, f"{DEFAULT_STORAGE_PREFIX}{job_id}"
-    )
+    job_dir = os.path.join(LOCAL_STORAGE_PATH, f"{DEFAULT_STORAGE_PREFIX}{job_id}")
     os.makedirs(job_dir, exist_ok=True)
     segment_files: List[str] = []
 
     try:
-        # Update job to running status
-        airtable.update_job_status(
-            log_record_id=log_record_id,
-            status="Running",
-            log_message=f"Starting video generation with {len(scenes)} scenes"
-        )
-        
         # 1) processar cenas
         for idx, scene in enumerate(scenes):
             logger.info(f"Job {job_id}: processing scene {idx+1}/{len(scenes)}")
-            airtable.add_log_message(
-                log_record_id=log_record_id,
-                message=f"Processing scene {idx+1}/{len(scenes)}"
-            )
-            
             img, aud = _prepare_scene_files(job_dir, idx, scene)
-            seg_out = os.path.join(
-                job_dir, f"{DEFAULT_SEGMENT_PREFIX}{idx}.mp4"
-            )
+            seg_out = os.path.join(job_dir, f"{DEFAULT_SEGMENT_PREFIX}{idx}.mp4")
 
             z = scene.get("options", {}).get("zoom", {})
             zt = z.get("type", opts["zoom"]["type"]) 
@@ -434,25 +360,15 @@ def create_final_video(
             segment_files.append(seg_out)
 
         # 2) concat
-        airtable.add_log_message(
-            log_record_id=log_record_id,
-            message="Concatenating video segments"
-        )
-        
         temp_vid = os.path.join(job_dir, f"{job_id}_temp.mp4")
-        ttype = opts["transitions"]["type"]
-        tdur = opts["transitions"]["duration"]
-        
+        ttype, tdur = opts["transitions"]["type"], opts["transitions"]["duration"]
         if ttype == "Corte Seco":
             txt = os.path.join(job_dir, "concat.txt")
             with open(txt, "w") as f:
                 for sf in segment_files:
                     f.write(f"file '{os.path.abspath(sf)}'\n")
-            _run_ffmpeg(
-                ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", txt, 
-                 "-c", "copy", temp_vid],
-                f"Error simple concat {job_id}"
-            )
+            _run_ffmpeg(["ffmpeg","-y","-f","concat","-safe","0","-i",txt,"-c","copy",temp_vid],
+                        f"Error simple concat {job_id}")
         else:
             _concatenate_with_transitions(segment_files, temp_vid, ttype, tdur)
         logger.info(f"Job {job_id}: concat done → {temp_vid}")
@@ -460,115 +376,45 @@ def create_final_video(
         # 3) música
         bg_url = opts["background_music"]["url"]
         if bg_url:
-            airtable.add_log_message(
-                log_record_id=log_record_id,
-                message="Adding background music"
-            )
-            
             vid_bgm = os.path.join(job_dir, f"{job_id}_bgm.mp4")
-            _add_background_music(
-                temp_vid, bg_url, vid_bgm, 
-                opts["background_music"]["volume"]
-            )
+            _add_background_music(temp_vid, bg_url, vid_bgm, opts["background_music"]["volume"])
             shutil.move(vid_bgm, temp_vid)
             logger.info(f"Job {job_id}: background music added")
 
         # 4) legendas
         caps = opts["captions"]
         if caps.get("enabled"):
-            airtable.add_log_message(
-                log_record_id=log_record_id,
-                message="Generating video captions"
-            )
-            
-            text_all = "\n".join(
-                s.get("text", "") for s in scenes if s.get("text")
-            )
+            text_all = "\n".join(s.get("text","") for s in scenes if s.get("text"))
             if text_all:
                 try:
-                    capf = process_captioning(
-                        temp_vid, text_all, caps.get("type", "srt"), [], job_id
-                    )
-                    if os.path.exists(capf):
-                        shutil.move(capf, temp_vid)
+                    capf = process_captioning(temp_vid, text_all, caps.get("type","srt"), [], job_id)
+                    if os.path.exists(capf): shutil.move(capf, temp_vid)
                     logger.info(f"Job {job_id}: captions applied")
                 except Exception as e:
-                    err_msg = f"Caption error: {str(e)}"
                     logger.warning(f"Job {job_id}: caption error {e}")
-                    airtable.add_log_message(
-                        log_record_id=log_record_id,
-                        message=err_msg
-                    )
 
         # 5) overlay global
         ov = opts["overlay"]
         if ov.get("url"):
-            airtable.add_log_message(
-                log_record_id=log_record_id,
-                message="Applying video overlay/watermark"
-            )
-            
             vid_ov = os.path.join(job_dir, f"{job_id}_ov.mp4")
-            _apply_overlay(
-                temp_vid, ov["url"], vid_ov, ov["position"], ov["opacity"]
-            )
+            _apply_overlay(temp_vid, ov["url"], vid_ov, ov["position"], ov["opacity"])
             shutil.move(vid_ov, temp_vid)
             logger.info(f"Job {job_id}: overlay applied")
 
         # 6) upload
-        airtable.add_log_message(
-            log_record_id=log_record_id,
-            message="Uploading final video to S3"
-        )
-        
         s3_key = f"final_videos/{job_id}_final.mp4"
-        s3_url = upload_to_s3(
-            temp_vid, s3_key,
-            S3_BUCKET_NAME, S3_ENDPOINT_URL,
-            S3_ACCESS_KEY, S3_SECRET_KEY, S3_REGION
-        )
+        s3_url = upload_to_s3(temp_vid, s3_key,
+                              S3_BUCKET_NAME, S3_ENDPOINT_URL,
+                              S3_ACCESS_KEY, S3_SECRET_KEY, S3_REGION)
         logger.info(f"Job {job_id}: uploaded → {s3_url}")
 
-        # Calculate processing duration
-        duration = time.time() - start_time
-        
-        # Update job to completed status
-        airtable.update_job_status(
-            log_record_id=log_record_id,
-            status="Completed",
-            log_message=f"Video generation completed successfully. URL: {s3_url}",
-            duration_seconds=int(duration),
-            metadata_updates={
-                "results": {
-                    "video_url": s3_url,
-                    "title": title,
-                    "processing_time": round(duration, 2)
-                }
-            }
-        )
-        
         shutil.rmtree(job_dir, ignore_errors=True)
-        res = {
-            "status": "completed",
-            "video_url": s3_url,
-            "title": title,
-            "id": content_id
-        }
+        res = {"status":"completed","video_url":s3_url,"title":title,"id":content_id}
         _send_webhook_notification(webhook_url, job_id, "completed", data=res)
         return res
 
     except Exception as e:
         logger.exception(f"Job {job_id}: pipeline failed: {e}")
-        
-        # Update job to failed status
-        airtable.update_job_status(
-            log_record_id=log_record_id,
-            status="Failed",
-            log_message=f"Video generation failed: {str(e)}",
-            error_details=str(e),
-            duration_seconds=int(time.time() - start_time)
-        )
-        
         _send_webhook_notification(webhook_url, job_id, "failed", error_message=str(e))
         shutil.rmtree(job_dir, ignore_errors=True)
-        return {"status": "failed", "error": str(e)}
+        return {"status":"failed","error":str(e)}
