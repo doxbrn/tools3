@@ -11,6 +11,26 @@ from config import LOCAL_STORAGE_PATH
 logger = logging.getLogger(__name__)
 
 
+def _send_webhook(url: str, payload: dict):
+    """Envia o resultado para a webhook URL."""
+    try:
+        logger.info(f"Sending webhook to {url} with payload: {payload}")
+        response = requests.post(url, json=payload, timeout=10)
+        # Raise HTTPError for bad responses (4xx or 5xx)
+        response.raise_for_status()
+        logger.info(
+            f"Webhook sent successfully to {url}, "
+            f"status code: {response.status_code}"
+        )
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to send webhook to {url}: {e}")
+    except Exception as e:
+        logger.error(
+            f"Unexpected error sending webhook to {url}: {e}", 
+            exc_info=True
+        )
+
+
 class VideoCreationError(Exception):
     """Erro genérico na criação do vídeo final."""
     pass
@@ -18,38 +38,72 @@ class VideoCreationError(Exception):
 
 def create_final_video(content_id: str,
                        title: str,
-                       scenes: list[dict]) -> str:
+                       scenes: list[dict],
+                       webhook_url: str):
     """
     Monta e concatena cada cena (imagem+áudio) num vídeo final.
-    Retorna o path local do vídeo gerado.
+    Envia o resultado (path ou erro) para a webhook_url.
     """
-    # 1. Cria pasta de trabalho limpa
-    work_dir = os.path.join(LOCAL_STORAGE_PATH, f"video_{content_id}")
-    if os.path.exists(work_dir):
-        shutil.rmtree(work_dir)
-    os.makedirs(work_dir, exist_ok=True)
+    final_video_path = None
+    status = "failed"
+    error_message = None
 
-    segment_paths = []
-    # 2. Processa cada cena (em ordem)
-    for scene in sorted(scenes, key=lambda s: s['order']):
-        try:
-            seg = _create_scene_segment(scene, work_dir)
-            segment_paths.append(seg)
-        except Exception as exc:
-            raise VideoCreationError(f"Scene {scene['order']} error: {exc}")
-
-    # 3. Concatena segmentos
-    final_video = os.path.join(work_dir, f"{content_id}_final.mp4")
     try:
-        _concat_segments(segment_paths, final_video)
-    except Exception as exc:
-        raise VideoCreationError(f"Failed to concatenate: {exc}")
+        # 1. Cria pasta de trabalho limpa
+        work_dir = os.path.join(LOCAL_STORAGE_PATH, f"video_{content_id}")
+        if os.path.exists(work_dir):
+            shutil.rmtree(work_dir)
+        os.makedirs(work_dir, exist_ok=True)
 
-    # 4. TODO: overlays, captions, background music
-    #     e.g. _apply_overlays(final_video), _add_captions(final_video), etc.
+        segment_paths = []
+        # 2. Processa cada cena (em ordem)
+        for scene in sorted(scenes, key=lambda s: s['order']):
+            try:
+                seg = _create_scene_segment(scene, work_dir)
+                segment_paths.append(seg)
+            except Exception as exc:
+                # Capture scene-specific error
+                raise VideoCreationError(
+                    f"Scene {scene['order']} error: {exc}"
+                )
 
-    logger.info(f"Video criado: {final_video}")
-    return final_video
+        # 3. Concatena segmentos
+        final_video_path = os.path.join(work_dir, f"{content_id}_final.mp4")
+        _concat_segments(segment_paths, final_video_path)
+
+        # 4. TODO: overlays, captions, background music
+        #     e.g. _apply_overlays(final_video), _add_captions(final_video), etc.
+
+        logger.info(f"Video criado com sucesso: {final_video_path}")
+        status = "completed"
+
+    except VideoCreationError as e:
+        logger.error(f"VideoCreationError for {content_id}: {e}")
+        error_message = str(e)
+        status = "failed"
+
+    except Exception as e:
+        logger.error(
+            f"Unexpected error creating video for {content_id}: {e}", 
+            exc_info=True
+        )
+        # Assign generic error message for unexpected errors
+        error_message = "Unexpected internal error during video creation."
+        status = "failed"
+
+    finally:
+        # --- Send webhook regardless of success or failure ---
+        webhook_payload = {
+            "content_id": content_id,
+            "status": status
+        }
+        if status == "completed" and final_video_path:
+            webhook_payload["video_path"] = final_video_path
+        elif error_message:
+            webhook_payload["error"] = error_message
+        
+        _send_webhook(webhook_url, webhook_payload)
+        # --- --- --- --- --- --- --- --- --- --- --- --- --- ---
 
 
 def _create_scene_segment(scene: dict, work_dir: str) -> str:

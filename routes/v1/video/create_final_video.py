@@ -1,11 +1,9 @@
 # routes/v1/video/create_final_video.py
 
 import logging
+import threading  # Import threading
 from flask import Blueprint, request, jsonify
-from services.v1.video.create_final_video import (
-    create_final_video,
-    VideoCreationError
-)
+from services.v1.video.create_final_video import create_final_video
 from services.authentication import authenticate
 from app_utils import validate_payload
 
@@ -43,9 +41,10 @@ _payload_schema = {
                 },
                 "required": ["image_url", "audio_url", "order"]
             }
-        }
+        },
+        "webhook_url": {"type": "string", "format": "uri"}
     },
-    "required": ["content_id", "scenes"]
+    "required": ["content_id", "scenes", "webhook_url"]
 }
 
 @v1_video_create_final_video_bp.route('/create-final-video', methods=['POST'])
@@ -53,41 +52,45 @@ _payload_schema = {
 @validate_payload(_payload_schema)
 def create_final_video_endpoint():
     """
-    Recebe um JSON com content_id, title (opcional) e lista de scenes.
-    Cada scene inclui image_url, audio_url, order e opções de zoom/transição.
-    Retorna um JSON com status e o path do vídeo final.
+    Recebe JSON com content_id, title?, scenes, webhook_url.
+    Inicia a criação do vídeo em background e retorna 202 Accepted.
+    Envia o resultado final para o webhook_url.
     """
     payload = request.get_json()
     content_id = payload['content_id']
     title = payload.get('title')
     scenes = payload['scenes']
+    webhook_url = payload['webhook_url']  # Get webhook_url
 
-    try:
-        final_path = create_final_video(
-            content_id=content_id,
-            title=title,
-            scenes=scenes
-        )
-        return jsonify({
-            "status": "completed",
-            "video_path": final_path
-        }), 200
+    logger.info(
+        f"Received request to create video for content_id: {content_id}, "
+        f"notifying: {webhook_url}"
+    )
 
-    except VideoCreationError as e:
-        # Log specific video creation error
-        logger.error(f"Video creation failed for {content_id}: {e}")
-        return jsonify({
-            "status": "failed",
-            "error": str(e)
-        }), 500
+    # --- Start video creation in a background thread --- 
+    thread = threading.Thread(
+        target=create_final_video,
+        kwargs={
+            'content_id': content_id,
+            'title': title,
+            'scenes': scenes,
+            'webhook_url': webhook_url  # Pass webhook_url to the service
+        },
+        # Allows main thread to exit even if this thread is running
+        daemon=True 
+    )
+    thread.start()
+    # -----------------------------------------------------
 
-    except Exception as e:
-        # unexpected
-        logger.error(
-            f"Unexpected error during video creation for {content_id}: {e}",
-            exc_info=True
-        )
-        return jsonify({
-            "status": "failed",
-            "error": "Unexpected error during video creation"
-        }), 500
+    # Return 202 Accepted immediately
+    message = (
+        f"Video creation started for {content_id}. "
+        f"Result will be sent to {webhook_url}"
+    )
+    return jsonify({
+        "status": "processing",
+        "message": message
+    }), 202
+
+    # Removed the synchronous error handling here, it will be handled
+    # by the background thread sending to the webhook.
