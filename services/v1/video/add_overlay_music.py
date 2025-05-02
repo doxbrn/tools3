@@ -12,6 +12,7 @@ from services.s3_toolkit import upload_to_s3
 from services.v1.video.create_final_video import ( 
     _download_stream, _run_ffmpeg, _send_webhook, VideoCreationError
 )
+from services.v1.video.create_final_video import _get_media_duration
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ def add_overlay_and_music(
     output_filename: str | None = None
 ):
     """
-    Downloads video, overlay, music. Applies overlay and mixes music using ffmpeg.
+    Downloads assets, applies looping overlay (img/vid) & looping music.
     Uploads the result to S3 and sends a webhook notification.
     """
     work_dir = None
@@ -56,14 +57,13 @@ def add_overlay_and_music(
             shutil.rmtree(work_dir)
         os.makedirs(work_dir, exist_ok=True)
 
-        # Define local file paths
+        # Define local file paths (use generic extensions)
         base_name = os.path.splitext(os.path.basename(input_video_url).split('?')[0])[0]
-        input_video_path = os.path.join(work_dir, f"{base_name}_input.mp4")
-        overlay_path = os.path.join(work_dir, "overlay.png")
-        music_path = os.path.join(work_dir, "music.mp3")
+        input_video_path = os.path.join(work_dir, f"{base_name}_input.mp4") 
+        overlay_media_path = os.path.join(work_dir, "overlay.media") # Generic extension
+        music_media_path = os.path.join(work_dir, "music.media") # Generic extension
         
         if output_filename:
-            # Remove extension if present and add .mp4
             output_base = os.path.splitext(output_filename)[0]
             final_video_path = os.path.join(work_dir, f"{output_base}.mp4")
         else:
@@ -75,58 +75,59 @@ def add_overlay_and_music(
         logger.info(f"[{content_id}] Downloading input video: {input_video_url}")
         _download_stream(input_video_url, input_video_path)
         
-        logger.info(f"[{content_id}] Downloading overlay image: {overlay_image_url}")
-        _download_stream(overlay_image_url, overlay_path)
+        logger.info(f"[{content_id}] Downloading overlay media: {overlay_image_url}")
+        _download_stream(overlay_image_url, overlay_media_path)
 
         logger.info(f"[{content_id}] Downloading background music: {background_music_url}")
-        _download_stream(background_music_url, music_path)
+        _download_stream(background_music_url, music_media_path)
         logger.info(f"[{content_id}] Downloads complete.")
 
-        # --- 3. FFmpeg Processing ---
+        # --- 3. Get Main Video Duration --- 
+        try:
+            main_duration = _get_media_duration(input_video_path)
+            logger.info(f"[{content_id}] Input video duration: {main_duration} seconds")
+        except Exception as e:
+             raise OverlayMusicError(f"Could not get duration of input video {input_video_path}: {e}")
+        
+        # --- 4. FFmpeg Processing (with looping inputs) ---
         overlay_coords = OVERLAY_POSITIONS.get(overlay_position, OVERLAY_POSITIONS["bottom-right"])
         
-        # Filter complex:
-        # [1:v] = overlay input stream
-        # [2:a] = music input stream
-        # [0:v] = original video input stream
-        # [0:a] = original audio input stream
-        # scale overlay if needed? maybe later. For now, assume it fits.
-        # overlay filter applies overlay image [1:v] onto video [0:v] -> [vout]
-        # volume filter reduces music [2:a] volume -> [a1]
-        # amix mixes original audio [0:a] and adjusted music [a1] -> [aout]
-        # -shortest ensures output duration matches the shortest input (video or audio)
-        
-        filter_complex = (
-            f"[0:v][1:v]overlay={overlay_coords}[vout];"
-            f"[2:a]volume={music_volume}[a1];"
-            f"[0:a][a1]amix=inputs=2:duration=shortest[aout]"
-        )
+        # Adjusted Filter complex for looping music
+        filter_overlay = f"[0:v][1:v]overlay={overlay_coords}:shortest=1[vout]"
+        filter_volume = f"[2:a]volume={music_volume}[a_music]"
+        filter_mix = f"[0:a][a_music]amix=inputs=2:duration=first[aout]"
+        filter_complex = f"{filter_overlay};{filter_volume};{filter_mix}"
 
         cmd = [
             'ffmpeg', '-y',
-            '-i', input_video_path, # Input 0: video
-            '-i', overlay_path,     # Input 1: overlay
-            '-i', music_path,       # Input 2: music
+            # Input 0: Main Video (no loop)
+            '-i', input_video_path, 
+            # Input 1: Overlay Media (looped)
+            '-stream_loop', '-1', '-i', overlay_media_path, 
+            # Input 2: Music Media (looped)
+            '-stream_loop', '-1', '-i', music_media_path, 
+            
             '-filter_complex', filter_complex,
-            '-map', '[vout]',       # Map video output from filtergraph
-            '-map', '[aout]',       # Map audio output from filtergraph
-            '-c:v', 'libx264',      # Re-encode video (overlay needs encoding)
-            '-preset', 'fast',      # Encoding preset
-            '-crf', '23',           # Constant Rate Factor (quality vs size)
-            '-c:a', 'aac',          # Encode audio to AAC
-            '-b:a', '192k',         # Audio bitrate
-            '-shortest',            # Finish encoding when shortest input ends
+            '-map', '[vout]',       # Map video output
+            '-map', '[aout]',       # Map audio output
+            '-c:v', 'libx264',      
+            '-preset', 'fast',      
+            '-crf', '23',           
+            '-c:a', 'aac',          
+            '-b:a', '192k',         
+            '-t', str(main_duration), # Set output duration explicitly
+            # Removed -shortest
             final_video_path
         ]
         
-        logger.info(f"[{content_id}] Running ffmpeg for overlay and music...")
-        _run_ffmpeg(cmd, f"[{content_id}] Failed to apply overlay/music")
+        logger.info(f"[{content_id}] Running ffmpeg for looping overlay and music...")
+        _run_ffmpeg(cmd, f"[{content_id}] Failed to apply looping overlay/music")
         
         if not os.path.exists(final_video_path):
              raise OverlayMusicError(f"[{content_id}] Output video file not found after ffmpeg: {final_video_path}")
         logger.info(f"[{content_id}] FFmpeg processing complete: {final_video_path}")
 
-        # --- 4. Upload to S3 ---
+        # --- 5. Upload to S3 ---
         logger.info(f"[{content_id}] Uploading final video to S3 bucket: {S3_BUCKET_NAME}")
         s3_url = upload_to_s3(
             file_path=final_video_path,
@@ -149,7 +150,7 @@ def add_overlay_and_music(
         status = "failed"
 
     finally:
-        # --- 5. Send Webhook ---
+        # --- 6. Send Webhook ---
         webhook_payload = {
             "content_id": content_id, # Include original content_id for tracking
             "status": status
@@ -162,7 +163,7 @@ def add_overlay_and_music(
         logger.info(f"[{content_id}] Sending final webhook to: {webhook_url}")
         _send_webhook(webhook_url, webhook_payload)
 
-        # --- 6. Cleanup ---
+        # --- 7. Cleanup ---
         if work_dir and os.path.exists(work_dir):
             try:
                 logger.info(f"[{content_id}] Cleaning up work directory: {work_dir}")

@@ -170,7 +170,7 @@ def _create_scene_segment(scene: dict, work_dir: str) -> str:
     _download_stream(aud_url, aud_path)
 
     # -- obtém duração real do áudio
-    duration = _get_audio_duration(aud_path)
+    duration = _get_media_duration(aud_path)
     fps = 30
     frames = int(duration * fps)
 
@@ -252,10 +252,9 @@ def _concat_segments(segment_paths: list[str], output_path: str):
     _run_ffmpeg(cmd, "Failed to concatenate final video")
 
 
-def _get_audio_duration(path: str) -> float:
+def _get_media_duration(path: str) -> float:
     """
-    Chama ffprobe para extrair a duração exata (em segundos) do
-    arquivo de áudio.
+    Chama ffprobe para extrair a duração exata (em segundos) de um arquivo de mídia.
     """
     cmd = [
         'ffprobe', '-v', 'error',
@@ -263,16 +262,26 @@ def _get_audio_duration(path: str) -> float:
         '-of', 'default=noprint_wrappers=1:nokey=1',
         path
     ]
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE, text=True)
+    logger.debug(f"Getting duration for {path}")  # Add debug log
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
+        # Log ffprobe error details
+        logger.error(
+            f"ffprobe failed for {path}. Return code: {proc.returncode}"
+        )
+        logger.error(f"ffprobe stderr: {proc.stderr.strip()}")
         raise VideoCreationError(
             f"ffprobe failed on {path}: {proc.stderr.strip()}"
         )
     try:
-        return float(proc.stdout.strip())
+        duration_str = proc.stdout.strip()
+        logger.debug(f"Duration output for {path}: '{duration_str}'")
+        return float(duration_str)
     except ValueError:
-        raise VideoCreationError(f"Invalid duration for {path}")
+        logger.error(f"Could not parse duration '{duration_str}' for {path}")
+        raise VideoCreationError(
+            f"Invalid duration value '{duration_str}' for {path}"
+        )
 
 
 def _download_stream(url: str, dest: str):
