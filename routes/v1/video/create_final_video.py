@@ -20,7 +20,9 @@ import logging
 from services.v1.video.create_final_video import create_final_video
 from services.authentication import authenticate
 
-v1_video_create_bp = Blueprint('v1_video_create_final_video', __name__)
+v1_video_create_final_video_bp = Blueprint(
+    'v1_video_create_final_video', __name__
+)
 logger = logging.getLogger(__name__)
 
 # JSON Schema alinhado aos parâmetros esperados pelo create_final_video
@@ -89,7 +91,7 @@ CREATE_FINAL_VIDEO_SCHEMA = {
     "additionalProperties": False
 }
 
-@v1_video_create_bp.route('/v1/video/create-final-video', methods=['POST'])
+@v1_video_create_final_video_bp.route('/v1/video/create-final-video', methods=['POST'])
 @authenticate
 @validate_payload(CREATE_FINAL_VIDEO_SCHEMA)
 @queue_task_wrapper(bypass_queue=False)
@@ -124,7 +126,6 @@ def create_final_video_route(job_id: str, data: dict):
             logger.error(f"Job {job_id}: Video creation failed: {error_msg}")
             return jsonify({'error': error_msg}), 500
 
-        # Sucesso: 'video_url' já é um link público ao S3
         video_url = result.get('video_url')
         logger.info(f"Job {job_id}: Video created successfully: {video_url}")
         return jsonify({'video_url': video_url}), 200
